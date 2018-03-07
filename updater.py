@@ -164,7 +164,7 @@ class Updater():
                     val_loss = self.val_const * (.5*(vals.squeeze()-batch_returns)**2).mean()
 
                 # Entropy Loss
-                softlogs = F.log_softmax(raw_pis)
+                softlogs = F.log_softmax(raw_pis, dim=-1)
                 entropy = -self.entropy_const * torch.mean(torch.sum(softlogs*probs, dim=-1))
 
                 # Total Loss
