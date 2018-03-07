@@ -109,8 +109,8 @@ class Collector():
 
         self.state_bookmark = state
         if not done:
-            #val, pi = self.net.forward(Variable(torch.FloatTensor(state.copy()).unsqueeze(0)))
-            rewards[-1] = rewards[-1] + val.squeeze().data[0] # Bootstrapped value
+            val, pi = self.net.forward(Variable(torch.FloatTensor(state.copy()).unsqueeze(0)))
+            rewards[-1] = rewards[-1] + self.gamma*val.squeeze().data[0] # Bootstrapped value
             dones[-1] = True
 
         return states, rewards, dones, actions
