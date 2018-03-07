@@ -48,7 +48,7 @@ class Model(nn.Module):
         value = self.value_out(fx)
         return value, action
 
-    def view_features(self, fx)
+    def view_features(self, fx):
         if not self.view_net_input:
             return
         if self.viewer is None and fx.shape[0] == 1:
