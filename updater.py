@@ -179,6 +179,7 @@ class Updater():
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
 
+            self.optim.zero_grad()
             total_epoch_loss += epoch_loss
             total_epoch_policy_loss += epoch_policy_loss
             total_epoch_val_loss += epoch_val_loss
@@ -198,7 +199,7 @@ class Updater():
                         "Policy Loss":self.avg_policy_loss,
                         "Value Loss":self.avg_val_loss,
                         "Entropy":self.avg_entropy}
-        print("Avgs – L:", total_epoch_loss/self.n_epochs, "– PL:", total_epoch_policy_loss/self.n_epochs, "– VL:", total_epoch_val_loss/self.n_epochs, "– S:", total_epoch_entropy/self.n_epochs)
+        print("Update Avgs – L:", total_epoch_loss/self.n_epochs, "– PL:", total_epoch_policy_loss/self.n_epochs, "– VL:", total_epoch_val_loss/self.n_epochs, "– S:", total_epoch_entropy/self.n_epochs)
 
     def gae(self, rewards, values, dones, gamma, lambda_):
         """
@@ -250,7 +251,7 @@ class Updater():
         return discounts
 
     def print_statistics(self):
-        print(" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]))
+        print("Running Avgs:"+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]))
 
     def log_statistics(self, log, T, reward):
         log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward)]) + '\n')
