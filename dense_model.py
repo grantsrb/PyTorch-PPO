@@ -32,19 +32,13 @@ class Model(nn.Module):
         if env_type == "Pong-v0":
             self.view_shape = (80,80)
         else:
-            self.view_shape = (60,60)
-        self.view_net_input = view_net_input
+            self.view_shape = (52,52)
+        self.view_net_input = False
         self.viewer = None
 
     def forward(self, x):
         fx = x.data[:,0,:] - .5*x.data[:,1,:]
-        if self.view_net_input:
-            if self.viewer is None and x.shape[0] == 1:
-                self.viewer  = plt.imshow(fx.numpy().reshape(self.view_shape))
-            elif x.shape[0] == 1:
-                self.viewer.set_data(fx.numpy().reshape(self.view_shape))
-                plt.pause(0.5)
-                plt.draw()
+        self.view_features(fx)
 
         fx = F.relu(self.entry(Variable(fx)))
         if self.use_bnorm: fx = self.bnorm1(fx)
@@ -53,6 +47,17 @@ class Model(nn.Module):
         action = self.action_out(fx)
         value = self.value_out(fx)
         return value, action
+
+    def view_features(self, fx)
+        if not self.view_net_input:
+            return
+        if self.viewer is None and fx.shape[0] == 1:
+            self.viewer  = plt.imshow(fx.numpy().reshape(self.view_shape))
+        elif fx.shape[0] == 1:
+            self.viewer.set_data(fx.numpy().reshape(self.view_shape))
+            plt.pause(0.5)
+            plt.draw()
+        return
 
     def check_grads(self):
         """
