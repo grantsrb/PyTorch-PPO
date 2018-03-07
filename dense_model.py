@@ -13,11 +13,12 @@ Description: A simple feedforward model with batchnorm.
 """
 
 class Model(nn.Module):
-    def __init__(self, input_space, output_space, env_type='snake-v0', view_net_input=False):
+    def __init__(self, input_space, output_space, hidden_dim=200, env_type='snake-v0', bnorm=False):
         super(Model, self).__init__()
-        self.hidden_dim = 200
+        self.hidden_dim = hidden_dim
         self.input_space = input_space
         self.output_space = output_space
+        self.use_bnorm = bnorm
 
         self.entry = nn.Linear(input_space[-1], self.hidden_dim)
         self.bnorm1 = nn.BatchNorm1d(self.hidden_dim)
@@ -46,9 +47,9 @@ class Model(nn.Module):
                 plt.draw()
 
         fx = F.relu(self.entry(Variable(fx)))
-        #fx = self.bnorm1(fx)
+        if self.use_bnorm: fx = self.bnorm1(fx)
         fx = F.relu(self.hidden(fx))
-        #fx = self.bnorm2(fx)
+        if self.use_bnorm: fx = self.bnorm2(fx)
         action = self.action_out(fx)
         value = self.value_out(fx)
         return value, action
