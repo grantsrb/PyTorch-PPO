@@ -32,16 +32,16 @@ if __name__ == '__main__':
     n_envs = 10 # Number of environments
     n_tsteps = 128 # Maximum number of steps to take in an environment for one episode
     n_rollouts = 20 # Number of times to perform rollouts before updating model
-    val_const = .5 # Scales the value portion of the loss function
-    entropy_const = 0.01 # Scales the entropy portion of the loss function
-    max_norm = 0.5 # Scales the gradients using their norm
+    val_const = 1 # Scales the value portion of the loss function
+    entropy_const = 0.001 # Scales the entropy portion of the loss function
+    max_norm = 0.1 # Scales the gradients using their norm
 
     lr = 2.5e-4 # Learning rate
     n_frame_stack = 2 # number of observations to stack for a single environment state
     n_epochs = 4
     batch_size = 256 # Batch size for PPO epochs
     epsilon = .1 # PPO clipping constant
-    decay_eps = False # Decays the PPO clipping constant "epsilon" at the end of every data collection
+    decay_eps = True # Decays the PPO clipping constant "epsilon" at the end of every data collection
     decay_lr = False
     cache_size = 0 # Number of samples in PPO data cache
     fresh_advs = False
@@ -169,6 +169,8 @@ if __name__ == '__main__':
     print("Obs Shape:,",collectors[0].obs_shape)
     print("Prep Shape:,",collectors[0].prepped_shape)
     print("State Shape:,",collectors[0].state_shape)
+    print("Num Samples Per Update:", n_rollouts*n_tsteps)
+    print("Samples Wasted in Update:", n_rollouts*n_tsteps % batch_size)
 
     net = Model(collectors[0].state_shape, collectors[0].action_space, env_type=env_type, bnorm=use_bnorm)
     dummy = net.forward(Variable(cuda_if(torch.zeros(2,*collectors[0].state_shape))))
@@ -212,7 +214,10 @@ if __name__ == '__main__':
         if decay_eps:
             updater.epsilon = (1-T/max_tsteps)*updater.epsilon
         if decay_lr:
-            updater.optim.lr = (1-T/max_tsteps)*updater.optim.lr
+            lr = (1-T/max_tsteps)*lr
+            state_dict = updater.optim.state_dict()
+            updater.optim = optim.Adam(updater.net.parameters(), lr=lr)
+            updater.optim.load_state_dict(state_dict)
 
         # Calculate the Loss and Update nets
         updater.update_model(*ep_data)
