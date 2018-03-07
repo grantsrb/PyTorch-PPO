@@ -50,6 +50,7 @@ if __name__ == '__main__':
     norm_advs = False
     norm_batch_advs = False
     use_bnorm = False
+    eval_vals = True
     model_type = 'dense'
     resume = False
     render = False
@@ -105,6 +106,8 @@ if __name__ == '__main__':
             elif "norm_batch_advs" in str_arg: norm_batch_advs = True
             elif "use_bnorm=False" in str_arg: use_bnorm = False
             elif "use_bnorm" in str_arg: use_bnorm = True
+            elif "eval_vals=False" in str_arg: eval_vals = False
+            elif "eval_vals" in str_arg: eval_vals = True
 
     hyperdict = dict()
     hyperdict["exp_name"] = exp_name
@@ -135,6 +138,7 @@ if __name__ == '__main__':
     hyperdict["norm_advs"] = norm_advs
     hyperdict["norm_batch_advs"] = norm_batch_advs
     hyperdict["use_bnorm"] = use_bnorm
+    hyperdict["eval_vals"] = eval_vals
     hyperdict["decay_lr"] = decay_lr
     hyperdict["resume"] = resume
     hyperdict["render"] = render
@@ -187,7 +191,7 @@ if __name__ == '__main__':
         data_producers.append(data_producer)
         data_producer.start()
 
-    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_returns=norm_returns, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs)
+    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_returns=norm_returns, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals)
     if resume:
         updater.optim.load_state_dict(torch.load(optim_save_file))
 
