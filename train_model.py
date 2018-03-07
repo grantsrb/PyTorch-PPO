@@ -203,9 +203,9 @@ if __name__ == '__main__':
         # Collect data
         ep_states, ep_rewards, ep_dones, ep_actions = [], [], [], []
         ep_data = [ep_states, ep_rewards, ep_dones, ep_actions]
-        for i in range(n_rollouts+n_envs):
+        for i in range(n_rollouts+2*n_envs):
             data = data_q.get()
-            if i >= n_envs:
+            if i >= 2*n_envs:
                 for i in range(len(ep_data)):
                     ep_data[i] += data[i]
         T += len(ep_data[0])
