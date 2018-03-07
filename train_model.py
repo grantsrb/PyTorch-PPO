@@ -49,6 +49,7 @@ if __name__ == '__main__':
     norm_returns = False
     norm_advs = False
     norm_batch_advs = False
+    use_bnorm = False
     model_type = 'dense'
     resume = False
     render = False
@@ -102,6 +103,8 @@ if __name__ == '__main__':
             elif "norm_advs" in str_arg: norm_advs = True
             elif "norm_batch_advs=False" in str_arg: norm_batch_advs = False
             elif "norm_batch_advs" in str_arg: norm_batch_advs = True
+            elif "use_bnorm=False" in str_arg: use_bnorm = False
+            elif "use_bnorm" in str_arg: use_bnorm = True
 
     hyperdict = dict()
     hyperdict["exp_name"] = exp_name
@@ -131,6 +134,7 @@ if __name__ == '__main__':
     hyperdict["norm_returns"] = norm_returns
     hyperdict["norm_advs"] = norm_advs
     hyperdict["norm_batch_advs"] = norm_batch_advs
+    hyperdict["use_bnorm"] = use_bnorm
     hyperdict["decay_lr"] = decay_lr
     hyperdict["resume"] = resume
     hyperdict["render"] = render
@@ -166,7 +170,7 @@ if __name__ == '__main__':
     print("Prep Shape:,",collectors[0].prepped_shape)
     print("State Shape:,",collectors[0].state_shape)
 
-    net = Model(collectors[0].state_shape, collectors[0].action_space, env_type=env_type)
+    net = Model(collectors[0].state_shape, collectors[0].action_space, env_type=env_type, bnorm=use_bnorm)
     dummy = net.forward(Variable(cuda_if(torch.zeros(2,*collectors[0].state_shape))))
     if resume:
         net.load_state_dict(torch.load(net_save_file))

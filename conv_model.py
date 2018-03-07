@@ -11,7 +11,7 @@ Simple, sequential convolutional net.
 '''
 
 class Model(nn.Module):
-    def __init__(self, input_space, output_space, emb_size=256, env_type='snake-v0', view_net_input=False):
+    def __init__(self, input_space, output_space, emb_size=256, env_type='snake-v0', bnorm=False):
         super(Model, self).__init__()
 
         self.input_space = input_space
@@ -23,22 +23,22 @@ class Model(nn.Module):
 
         # Embedding Net
         shape = input_space.copy()
-        self.conv1 = self.conv_block(input_space[-3],32, stride=2, bnorm=False, activation='elu')
+        self.conv1 = self.conv_block(input_space[-3],32, stride=2, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
         shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
         shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
         shape[-3] = 32
-        self.conv2 = self.conv_block(32, 32, stride=2,bnorm=False, activation='elu')
+        self.conv2 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv2)
         shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
         shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
         shape[-3] = 32
-        self.conv3 = self.conv_block(32, 32, stride=2,bnorm=False, activation='elu')
+        self.conv3 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv3)
         shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
         shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
         shape[-3] = 32
-        self.conv4 = self.conv_block(32, 32, stride=2, bnorm=False, activation='elu')
+        self.conv4 = self.conv_block(32, 32, stride=2, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv4)
         shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
         shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
