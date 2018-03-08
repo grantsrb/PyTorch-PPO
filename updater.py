@@ -19,7 +19,7 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=5, batch_size=200, cache_size=3000, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False):
+    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=5, batch_size=200, cache_size=3000, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True):
         self.net = net
         self.old_net = copy.deepcopy(self.net)
         self.optim = optim.Adam(self.net.parameters(), lr=lr)
@@ -35,6 +35,7 @@ class Updater():
         self.cache_size = cache_size
         self.fresh_advs = fresh_advs
         self.clip_vals = clip_vals
+        self.eval_vals = eval_vals
         self.norm_returns = norm_returns
         self.norm_advs = norm_advs
         self.norm_batch_advs = norm_batch_advs
@@ -86,14 +87,14 @@ class Updater():
         self.old_net.req_grads(False)
 
         if not self.fresh_advs:
-            advantages, returns = self.make_advs_and_rets(states, self.eval_vals)
+            advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
 
         total_epoch_loss, total_epoch_policy_loss, total_epoch_val_loss, total_epoch_entropy = 0, 0, 0, 0
 
         for epoch in range(self.n_epochs):
 
             if self.fresh_advs:
-                advantages, returns = self.make_advs_and_rets(states, self.eval_vals)
+                advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
 
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
 
@@ -183,21 +184,22 @@ class Updater():
             val_loss = self.val_const * (.5*(vals.squeeze()-batch_returns)**2).mean()
 
         # Entropy Loss
-        softlogs = F.log_softmax(raw_pis)
+        softlogs = F.log_softmax(raw_pis, dim=-1)
         entropy = -self.entropy_const * torch.mean(torch.sum(softlogs*probs, dim=-1))
 
-        return policy_loss.squeeze(), val_loss.squeeze(), entropy.squeeze()
+        return policy_loss, val_loss, entropy
 
-    def make_advs_and_rets(self, states, eval_vals):
+    def make_advs_and_rets(self, states, rewards, dones, eval_vals):
         """
         Creates the advantages and returns.
 
-        states - torch FloatTensor of shape (LengthData, C, H, W)
+        states - torch FloatTensor of shape (L, C, H, W)
+        rewards - torch FloatTensor of empirical rewards (L,)
         eval_vals - boolean denoting if the net should be in eval mode when making the value predictions
 
         Returns:
-            advantages - torch FloatTensor of shape (LengthData,)
-            returns - torch FloatTensor of shape (LengthData,)
+            advantages - torch FloatTensor of shape (L,)
+            returns - torch FloatTensor of shape (L,)
         """
 
         self.net.train(mode= not eval_vals)
