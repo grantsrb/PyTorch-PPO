@@ -100,7 +100,7 @@ class Updater():
 
             indices = torch.randperm(states.shape[0]).long()
 
-            for i in range(0,indices.shape[0]-self.batch_size, self.batch_size):
+            for i in range(0,indices.shape[0]-self.batch_size+1, self.batch_size):
                 self.optim.zero_grad()
 
                 # Get data for batch
