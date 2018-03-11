@@ -145,7 +145,7 @@ if __name__ == '__main__':
     hyperdict["resume"] = resume
     hyperdict["render"] = render
 
-    if batch_size < n_rollouts*n_tsteps:
+    if batch_size > n_rollouts*n_tsteps:
         batch_size = n_rollouts*n_tsteps
 
     items = list(hyperdict.items())
