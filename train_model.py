@@ -16,11 +16,9 @@ def cuda_if(obj):
     if torch.cuda.is_available():
         obj = obj.cuda()
     return obj
-if torch.cuda.is_available():
-    torch.FloatTensor = torch.cuda.FloatTensor
-    torch.LongTensor = torch.cuda.LongTensor
 
 if __name__ == '__main__':
+    mp.set_start_method('forkserver')
 
     exp_name = 'default'
     env_type = 'BreakoutNoFrameskip-v4'
@@ -47,6 +45,7 @@ if __name__ == '__main__':
     fresh_advs = False
     clip_vals = False
     norm_returns = False
+    use_nstep_rets = True
     norm_advs = False
     norm_batch_advs = False
     use_bnorm = False
@@ -100,6 +99,8 @@ if __name__ == '__main__':
             elif "clip_vals" in str_arg: clip_vals = True
             elif "norm_returns=False" in str_arg: norm_returns = False
             elif "norm_returns" in str_arg: norm_returns = True
+            elif "use_nstep_rets=False" in str_arg: use_nstep_rets = False
+            elif "use_nstep_rets" in str_arg: use_nstep_rets = True
             elif "norm_advs=False" in str_arg: norm_advs = False
             elif "norm_advs" in str_arg: norm_advs = True
             elif "norm_batch_advs=False" in str_arg: norm_batch_advs = False
@@ -135,6 +136,7 @@ if __name__ == '__main__':
     hyperdict["clip_vals"] = clip_vals
     hyperdict["decay_eps"] = decay_eps
     hyperdict["norm_returns"] = norm_returns
+    hyperdict["use_nstep_rets"] = use_nstep_rets
     hyperdict["norm_advs"] = norm_advs
     hyperdict["norm_batch_advs"] = norm_batch_advs
     hyperdict["use_bnorm"] = use_bnorm
@@ -159,14 +161,15 @@ if __name__ == '__main__':
     net_save_file = exp_name+"_net.p"
     optim_save_file = exp_name+"_optim.p"
     log_file = exp_name+"_log.txt"
-    log = open(log_file, 'a')
+    if resume: log = open(log_file, 'a')
+    else: log = open(log_file, 'w')
     for k, v in sorted(items):
         log.write(k+":"+str(v)+"\n")
 
     # Shared Data Objects
     data_q = mp.Queue(n_envs)
     reward_q = mp.Queue(1)
-    reward_q.put(torch.FloatTensor([-1]).share_memory_())
+    reward_q.put(-1)
 
     collectors = []
     for i in range(n_envs):
@@ -179,13 +182,13 @@ if __name__ == '__main__':
     print("Num Samples Per Update:", n_rollouts*n_tsteps)
     print("Samples Wasted in Update:", n_rollouts*n_tsteps % batch_size)
 
-    net = Model(collectors[0].state_shape, collectors[0].action_space, env_type=env_type, bnorm=use_bnorm)
+    net = Model(collectors[0].state_shape, collectors[0].action_space, bnorm=use_bnorm)
+    net = cuda_if(net)
     dummy = net.forward(Variable(cuda_if(torch.zeros(2,*collectors[0].state_shape))))
     if resume:
         net.load_state_dict(torch.load(net_save_file))
     target_net = copy.deepcopy(net)
     net.share_memory()
-    net = cuda_if(net)
     target_net = cuda_if(target_net)
     data_producers = []
     for i in range(len(collectors)):
@@ -194,7 +197,7 @@ if __name__ == '__main__':
         data_producers.append(data_producer)
         data_producer.start()
 
-    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_returns=norm_returns, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals)
+    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_returns=norm_returns, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals, use_nstep_rets=use_nstep_rets)
     if resume:
         updater.optim.load_state_dict(torch.load(optim_save_file))
 
@@ -215,15 +218,16 @@ if __name__ == '__main__':
         for i in range(n_rollouts+2*n_envs):
             data = data_q.get()
             if i >= 2*n_envs:
-                for i in range(len(ep_data)):
-                    ep_data[i] += data[i]
+                for j in range(len(ep_data)):
+                    ep_data[j] += data[j]
+            print("Data:", i, "/", n_rollouts+2*n_envs, end="      \r")
         T += len(ep_data[0])
         if decay_eps:
-            updater.epsilon = (1-T/max_tsteps)*updater.epsilon
+            updater.epsilon = (1-T/max_tsteps)*epsilon
         if decay_lr:
-            lr = (1-T/max_tsteps)*lr
+            new_lr = (1-T/max_tsteps)*lr
             state_dict = updater.optim.state_dict()
-            updater.optim = optim.Adam(updater.net.parameters(), lr=lr)
+            updater.optim = optim.Adam(updater.net.parameters(), lr=new_lr)
             updater.optim.load_state_dict(state_dict)
 
         # Calculate the Loss and Update nets
@@ -236,8 +240,8 @@ if __name__ == '__main__':
         print("Grad Norm:", updater.norm, "– Avg Action:", np.mean(ep_data[3]))
         avg_reward = reward_q.get()
         reward_q.put(avg_reward)
-        print("Average Reward:", avg_reward[0], end='\n\n')
-        updater.log_statistics(log, T, avg_reward[0])
+        print("Average Reward:", avg_reward, end='\n\n')
+        updater.log_statistics(log, T, avg_reward)
 
         # Check for memory leaks
         gc.collect()
