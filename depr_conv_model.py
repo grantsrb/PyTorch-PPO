@@ -6,16 +6,22 @@ import numpy as np
 from skimage.transform import resize
 from skimage.color import rgb2grey
 
+'''
+Simple, sequential convolutional net.
+'''
+
 class Model(nn.Module):
-    def __init__(self, input_space, output_space, emb_size=256, bnorm=False):
+    def __init__(self, input_space, output_space, emb_size=256, env_type='snake-v0', bnorm=False):
         super(Model, self).__init__()
 
         self.input_space = input_space
         self.output_space = output_space
         self.emb_size = emb_size
+        self.env_type = env_type
+
+        self.convs = nn.ModuleList([])
 
         # Embedding Net
-        self.convs = nn.ModuleList([])
         shape = input_space.copy()
         self.conv1 = self.conv_block(input_space[-3],32, stride=2, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
@@ -39,12 +45,21 @@ class Model(nn.Module):
         shape[-3] = 32
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
-        self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
+        self.resize_emb = nn.Linear(self.flat_size, self.emb_size)
 
         # Policy
         self.emb_bnorm = nn.BatchNorm1d(self.emb_size)
         self.pi = self.dense_block(self.emb_size, self.output_space, activation='none', bnorm=False)
         self.value = self.dense_block(self.emb_size, 1, activation='none', bnorm=False)
+
+        # Forward Dynamics
+        self.fwd_dyn1 = nn.Linear(self.emb_size, 256)
+        self.action_one_hots = torch.zeros(self.output_space, self.output_space).float()
+        for i in range(self.action_one_hots.shape[0]):
+            self.action_one_hots[i,i] = 1
+        self.action_one_hots = Variable(self.action_one_hots)
+        self.action_layer = nn.Linear(self.output_space, 256)
+        self.fwd_dyn2 = nn.Linear(256, self.emb_size)
 
         # Inverse Dynamics
         self.inv_dyn1 = nn.Linear(self.emb_size, 256)
@@ -55,12 +70,11 @@ class Model(nn.Module):
         return (shape - ksize + 2*padding)//stride + 1
 
     def forward(self, x, bnorm=False):
-        embs = self.encoder(x)
+        embs = self.emb_net(x)
         val, pi = self.policy(embs, bnorm=bnorm)
-        #return val, pi, embs
         return val, pi
 
-    def encoder(self, state):
+    def emb_net(self, state):
         """
         Creates an embedding for the state.
 
@@ -68,20 +82,33 @@ class Model(nn.Module):
         """
         feats = self.features(state)
         feats = feats.view(feats.shape[0], -1)
-        feats = self.proj_matrx(feats)
-        return feats
+        state_embs = self.resize_emb(feats)
+        return state_embs
 
     def policy(self, state_emb, bnorm=True):
         """
         Uses the state embedding to produce an action.
 
-        state_emb - the state embedding created by the encoder
+        state_emb - the state embedding created by the emb_net
         """
-        #if bnorm:
-        #    state_emb = self.emb_bnorm(state_emb)
+        if bnorm:
+            state_emb = self.emb_bnorm(state_emb)
         pi = self.pi(state_emb)
         value = self.value(Variable(state_emb.data))
         return value, pi
+
+    def fwd_dynamics(self, h, a, bnorm=False):
+        """
+        Forward dynamics model predicts the embedding of the next state.
+
+        h - Variable FloatTensor of current state embedding
+        a - list of action indices as ints or a LongTensor of the actual actions taken
+        """
+
+        actions = self.action_one_hots[a]
+        mid = F.relu(self.fwd_dyn1(h)+self.action_layer(actions))
+        pred = self.fwd_dyn2(mid)
+        return pred
 
     def inv_dynamics(self, h1, h2):
         """
@@ -177,8 +204,8 @@ class Model(nn.Module):
             pic[pic == 109] = 0 # erase background (background type 2)
             pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
         elif 'Breakout' in env_type:
-            pic = pic[35:] # crop
-            #pic = rgb2grey(pic)
+            pic = pic[35:195] # crop
+            pic = rgb2grey(pic)
             pic = resize(pic, (52,52), mode='constant')
             pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
         elif env_type == "snake-v0":
@@ -189,33 +216,3 @@ class Model(nn.Module):
             new_pic[:,:][pic[:,:,2]==255] = .33
             pic = new_pic
         return pic[None]
-
-class FwdDynamics(nn.Module):
-    def __init__(self, emb_size, action_space, bnorm=False):
-        super(FwdDynamics, self).__init__()
-        self.emb_size = emb_size
-        self.action_space = action_space
-        self.use_bnorm = bnorm
-
-        # Forward Dynamics
-        self.fwd_dyn1 = nn.Linear(self.emb_size, 256)
-        eye = torch.eye(self.action_space).float()
-        if torch.cuda.is_available(): eye = eye.cuda()
-        self.action_one_hots = Variable(eye)
-        self.action_layer = nn.Linear(self.action_space, 256)
-        self.fwd_dyn2 = nn.Linear(256, self.emb_size)
-
-    def forward(self, h, a, bnorm=False):
-        """
-        Forward dynamics model predicts the embedding of the next state.
-
-        h - Variable FloatTensor of current state embedding
-        a - list of action indices as ints or a LongTensor of the actual actions taken
-        """
-        print(type(a))
-        print(a.shape)
-
-        actions = self.action_one_hots[a]
-        mid = F.elu(self.fwd_dyn1(h)+self.action_layer(actions))
-        pred = self.fwd_dyn2(mid)
-        return pred
