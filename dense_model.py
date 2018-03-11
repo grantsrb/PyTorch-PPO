@@ -13,7 +13,7 @@ Description: A simple feedforward model with batchnorm.
 """
 
 class Model(nn.Module):
-    def __init__(self, input_space, output_space, hidden_dim=200, env_type='snake-v0', bnorm=False):
+    def __init__(self, input_space, output_space, hidden_dim=200, bnorm=False):
         super(Model, self).__init__()
         self.hidden_dim = hidden_dim
         self.input_space = input_space
@@ -28,17 +28,8 @@ class Model(nn.Module):
         self.action_out = nn.Linear(self.hidden_dim, output_space)
         self.value_out = nn.Linear(self.hidden_dim, 1)
 
-        self.env_type = env_type
-        if env_type == "Pong-v0":
-            self.view_shape = (80,80)
-        else:
-            self.view_shape = (52,52)
-        self.view_net_input = False
-        self.viewer = None
-
     def forward(self, x):
         fx = x.data[:,0,:] - .5*x.data[:,1,:]
-        self.view_features(fx)
 
         fx = F.relu(self.entry(Variable(fx)))
         if self.use_bnorm: fx = self.bnorm1(fx)
@@ -47,17 +38,6 @@ class Model(nn.Module):
         action = self.action_out(fx)
         value = self.value_out(fx)
         return value, action
-
-    def view_features(self, fx):
-        if not self.view_net_input:
-            return
-        if self.viewer is None and fx.shape[0] == 1:
-            self.viewer  = plt.imshow(fx.numpy().reshape(self.view_shape))
-        elif fx.shape[0] == 1:
-            self.viewer.set_data(fx.numpy().reshape(self.view_shape))
-            plt.pause(0.5)
-            plt.draw()
-        return
 
     def check_grads(self):
         """
