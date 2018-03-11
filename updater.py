@@ -124,7 +124,7 @@ class Updater():
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
 
-                print("Batch:", epoch*len(indices)//self.batch_size+i, "/", self.n_epochs*len(indices)//self.batch_size, end="         \r")
+                print("Batch:", epoch*len(indices)+i, "/", self.n_epochs*len(indices), end="         \r")
 
             self.optim.zero_grad()
             total_epoch_loss += epoch_loss
