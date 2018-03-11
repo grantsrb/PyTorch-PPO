@@ -6,21 +6,12 @@ import matplotlib.pyplot as plt
 try:
     import gym_snake
 except ImportError:
-    print("You have not installed gym-snake! Do not try to use env_type=snake-v0")
-
-def cuda_if(obj):
-    if torch.cuda.is_available():
-        obj = obj.cuda()
-    return obj
+    pass
 
 class Collector():
     """
     This class handles the collection of data by interacting with the environments.
     """
-
-    if torch.cuda.is_available():
-        torch.FloatTensor = torch.cuda.FloatTensor
-        torch.LongTensor = torch.cuda.LongTensor
 
     def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=2, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x):
 
@@ -51,6 +42,16 @@ class Collector():
         self.alelives = 12
         self.last_reset = 0
 
+    def cuda_if(self, obj):
+        if torch.cuda.is_available():
+            obj = obj.cuda()
+        return obj
+
+    def cpu_if(self, obj):
+        if torch.cuda.is_available():
+            obj = obj.cpu()
+        return obj
+
     def produce_data(self, data_q):
         """
         Used as the external call to get a rollout from each environment.
@@ -61,6 +62,7 @@ class Collector():
 
         self.net.req_grads(False)
         self.net.train(mode=False)
+        self.net = self.cuda_if(self.net)
         while True:
             data = self.rollout()
             data_q.put(data)
@@ -84,8 +86,9 @@ class Collector():
         states, rewards, dones, actions = [], [], [], []
         breakout = 'Breakout' in self.env_type
         for i in range(self.n_tsteps):
-            val, pi = self.net.forward(Variable(torch.FloatTensor(state.copy()).unsqueeze(0)))
-            action = self.get_action(pi.data)
+            tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
+            val, pi = self.net.forward(Variable(tstate))
+            action = self.get_action(self.cpu_if(pi.data))
 
             obs, reward, done, info = self.env.step(action+2*(self.env_type=='Pong-v0')+2*breakout)
             self.episode_reward += reward
@@ -109,7 +112,8 @@ class Collector():
 
         self.state_bookmark = state
         if not done:
-            val, pi = self.net.forward(Variable(torch.FloatTensor(state.copy()).unsqueeze(0)))
+            tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
+            val, pi = self.net.forward(Variable(tstate))
             rewards[-1] = rewards[-1] + self.gamma*val.squeeze().data[0] # Bootstrapped value
             dones[-1] = True
 
