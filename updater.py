@@ -19,7 +19,7 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=5, batch_size=200, cache_size=3000, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True):
+    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=5, batch_size=200, cache_size=3000, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
         self.net = net
         self.old_net = copy.deepcopy(self.net)
         self.optim = optim.Adam(self.net.parameters(), lr=lr)
@@ -38,6 +38,7 @@ class Updater():
         self.eval_vals = eval_vals
         self.norm_returns = norm_returns
         self.norm_advs = norm_advs
+        self.use_nstep_rets = use_nstep_rets
         self.norm_batch_advs = norm_batch_advs
 
         # Data caches
@@ -51,6 +52,11 @@ class Updater():
         # Tracking variables
         self.avg_loss = None
         self.info = {}
+
+        if torch.cuda.is_available():
+            torch.FloatTensor = torch.cuda.FloatTensor
+            torch.LongTensor = torch.cuda.LongTensor
+
 
     def update_model(self, states, rewards, dones, actions):
         """
@@ -95,9 +101,7 @@ class Updater():
 
             if self.fresh_advs:
                 advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
-
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
-
             indices = torch.randperm(states.shape[0]).long()
 
             for i in range(0,indices.shape[0]-self.batch_size+1, self.batch_size):
@@ -119,6 +123,8 @@ class Updater():
                 epoch_policy_loss += policy_loss.data[0]
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
+
+                print("Batch:", epoch*len(indices)//self.batch_size+i, "/", self.n_epochs*len(indices)//self.batch_size, end="         \r")
 
             self.optim.zero_grad()
             total_epoch_loss += epoch_loss
@@ -207,7 +213,9 @@ class Updater():
         self.net.train(mode=True)
         gae_vals = torch.cat([vals.data.squeeze(), cuda_if(torch.zeros(1))], 0)
         advantages = self.gae(rewards.squeeze(), gae_vals.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
-        returns = advantages + vals.data.squeeze()
+
+        if self.use_nstep_rets: returns = advantages + vals.data.squeeze()
+        else: returns = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
         if self.norm_advs:
             advantages = (advantages-advantages.mean())/(advantages.std()+1e-5)
         if self.norm_returns:
