@@ -19,32 +19,24 @@ class Model(nn.Module):
         shape = input_space.copy()
         self.conv1 = self.conv_block(input_space[-3],32, stride=2, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
-        shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
-        shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
-        shape[-3] = 32
+        shape = self.new_shape(shape, 32)
         self.conv2 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv2)
-        shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
-        shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
-        shape[-3] = 32
+        shape = self.new_shape(shape, 32)
         self.conv3 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv3)
-        shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
-        shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
-        shape[-3] = 32
+        shape = self.new_shape(shape, 32)
         self.conv4 = self.conv_block(32, 32, stride=2, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv4)
-        shape[-1] = self.new_size(shape[-1], ksize=3, padding=1, stride=2)
-        shape[-2] = self.new_size(shape[-2], ksize=3, padding=1, stride=2)
-        shape[-3] = 32
+        shape = self.new_shape(shape, 32)
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
         self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
 
         # Policy
         self.emb_bnorm = nn.BatchNorm1d(self.emb_size)
-        self.pi = self.dense_block(self.emb_size, self.output_space, activation='none', bnorm=False)
-        self.value = self.dense_block(self.emb_size, 1, activation='none', bnorm=False)
+        self.pi = nn.Linear(self.emb_size, self.output_space)
+        self.value = nn.Linear(self.emb_size, 1)
 
         # Inverse Dynamics
         self.inv_dyn1 = nn.Linear(self.emb_size, 256)
@@ -53,6 +45,12 @@ class Model(nn.Module):
 
     def new_size(self, shape, ksize, padding, stride):
         return (shape - ksize + 2*padding)//stride + 1
+
+    def new_shape(self, shape, depth, ksize=3, padding=1, stride=2):
+        shape[-1] = self.new_size(shape[-1], ksize=ksize, padding=padding, stride=stride)
+        shape[-2] = self.new_size(shape[-2], ksize=ksize, padding=padding, stride=stride)
+        shape[-3] = depth
+        return shape
 
     def forward(self, x, bnorm=False):
         embs = self.encoder(x)
@@ -77,8 +75,8 @@ class Model(nn.Module):
 
         state_emb - the state embedding created by the encoder
         """
-        #if bnorm:
-        #    state_emb = self.emb_bnorm(state_emb)
+        if bnorm:
+            state_emb = self.emb_bnorm(state_emb)
         pi = self.pi(state_emb)
         value = self.value(Variable(state_emb.data))
         return value, pi
@@ -98,17 +96,16 @@ class Model(nn.Module):
     def conv_block(self, chan_in, chan_out, ksize=3, stride=1, padding=1, activation="relu", max_pool=False, bnorm=True):
         block = []
         block.append(nn.Conv2d(chan_in, chan_out, ksize, stride=stride, padding=padding))
-        if activation is not None: activation=activation.lower()
-        if "relu" in activation:
+        if activation is not None: 
+            activation=activation.lower()
+        if "relu" == activation:
             block.append(nn.ReLU())
-        elif "elu" in activation:
-            block.append(nn.ELU())
-        elif "tanh" in activation:
-            block.append(nn.Tanh())
-        elif "elu" in activation:
-            block.append(nn.ELU())
-        elif "selu" in activation:
+        elif "selu" == activation:
             block.append(nn.SELU())
+        elif "elu" == activation:
+            block.append(nn.ELU())
+        elif "tanh" == activation:
+            block.append(nn.Tanh())
         if max_pool:
             block.append(nn.MaxPool2d(2, 2))
         if bnorm:
@@ -119,16 +116,14 @@ class Model(nn.Module):
         block = []
         block.append(nn.Linear(chan_in, chan_out))
         if activation is not None: activation=activation.lower()
-        if "relu" in activation:
+        if "relu" == activation:
             block.append(nn.ReLU())
-        elif "elu" in activation:
-            block.append(nn.ELU())
-        elif "tanh" in activation:
-            block.append(nn.Tanh())
-        elif "elu" in activation:
-            block.append(nn.ELU())
-        elif "selu" in activation:
+        elif "selu" == activation:
             block.append(nn.SELU())
+        elif "elu" == activation:
+            block.append(nn.ELU())
+        elif "tanh" == activation:
+            block.append(nn.Tanh())
         if bnorm:
             block.append(nn.BatchNorm1d(chan_out))
         return nn.Sequential(*block)
