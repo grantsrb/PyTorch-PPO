@@ -9,18 +9,18 @@ from skimage.color import rgb2grey
 class Model(nn.Module):
     def __init__(self, input_space, output_space, emb_size=256, bnorm=False):
         super(Model, self).__init__()
-
         self.input_space = input_space
         self.output_space = output_space
         self.emb_size = emb_size
+        self.use_bnorm = bnorm
 
         # Embedding Net
         self.convs = nn.ModuleList([])
         shape = input_space.copy()
 
-        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=2, padding=0, bnorm=bnorm, activation='elu')
+        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=1, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
-        shape = self.new_shape(shape, 16, ksize=7, stride=2, padding=0)
+        shape = self.new_shape(shape, 16, ksize=7, stride=1, padding=0)
 
         self.conv2 = self.conv_block(16, 32, ksize=3, stride=1, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv2)
@@ -30,12 +30,17 @@ class Model(nn.Module):
         self.convs.append(self.conv3)
         shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=0)
 
-        self.conv3 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
-        self.convs.append(self.conv3)
+        self.conv4 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='elu')
+        self.convs.append(self.conv4)
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+
+        self.conv5 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        self.convs.append(self.conv5)
         shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
+        print("Features Flat Size:", self.flat_size)
         self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
 
         # Policy
@@ -57,9 +62,9 @@ class Model(nn.Module):
         shape[-3] = depth
         return shape
 
-    def forward(self, x, bnorm=False):
+    def forward(self, x):
         embs = self.encoder(x)
-        val, pi = self.policy(embs, bnorm=bnorm)
+        val, pi = self.policy(embs)
         #return val, pi, embs
         return val, pi
 
@@ -80,7 +85,7 @@ class Model(nn.Module):
 
         state_emb - the state embedding created by the encoder
         """
-        if bnorm:
+        if self.use_bnorm:
             state_emb = self.emb_bnorm(state_emb)
         pi = self.pi(state_emb)
         value = self.value(Variable(state_emb.data))
@@ -186,7 +191,7 @@ class Model(nn.Module):
             pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
         elif 'Breakout' in env_type:
             pic = pic[35:] # crop
-            #pic = rgb2grey(pic)
+            pic = rgb2grey(pic)
             pic = resize(pic, (52,52), mode='constant')
             pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
         elif env_type == "snake-v0":
