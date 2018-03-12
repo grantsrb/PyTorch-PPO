@@ -52,6 +52,9 @@ class Updater():
         # Tracking variables
         self.avg_loss = None
         self.info = {}
+        self.max_rew = 0
+        self.min_rew = 0
+        self.avg_rew = 0
 
         if torch.cuda.is_available():
             torch.FloatTensor = torch.cuda.FloatTensor
@@ -118,12 +121,12 @@ class Updater():
                 # Gradient Step
                 loss.backward()
                 self.norm = nn.utils.clip_grad_norm(self.net.parameters(), self.max_norm)
+                self.net.check_grads()
                 self.optim.step()
                 epoch_loss += loss.data[0]
                 epoch_policy_loss += policy_loss.data[0]
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
-
                 print("Batch:", epoch*len(indices)+i, "/", self.n_epochs*len(indices), end="         \r")
 
             self.optim.zero_grad()
@@ -264,8 +267,8 @@ class Updater():
     def print_statistics(self):
         print("Running Avgs:"+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]))
 
-    def log_statistics(self, log, T, reward):
-        log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward)]) + '\n')
+    def log_statistics(self, log, T, reward, avg_action):
+        log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward), "AvgAction: "+str(avg_action)]) + '\n')
         log.flush()
 
     def save_model(self, net_file_name, optim_file_name):

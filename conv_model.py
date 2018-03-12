@@ -163,6 +163,14 @@ class Model(nn.Module):
         for param in self.parameters():
             param.requires_grad = calc_bool
 
+    def check_grads(self):
+        """
+        Checks all gradients for NaN values. NaNs have a way of sneaking into pytorch...
+        """
+        for param in self.parameters():
+            if torch.sum(param.data != param.data) > 0:
+                print("NaNs in Grad!")
+
     @staticmethod
     def preprocess(pic, env_type='snake-v0'):
         if env_type == "Pong-v0":
