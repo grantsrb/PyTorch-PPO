@@ -19,11 +19,10 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=5, batch_size=200, cache_size=3000, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
+    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
         self.net = net
         self.old_net = copy.deepcopy(self.net)
         self.optim = optim.Adam(self.net.parameters(), lr=lr)
-        self.global_loss = 0 # Used for efficiency in backprop
         self.entropy_const = entropy_const
         self.val_const = value_const
         self.gamma = gamma
@@ -31,15 +30,15 @@ class Updater():
         self.max_norm = max_norm
         self.n_epochs = n_epochs
         self.batch_size = batch_size
-        self.epsilon = epsilon
         self.cache_size = cache_size
+        self.epsilon = epsilon
         self.fresh_advs = fresh_advs
         self.clip_vals = clip_vals
-        self.eval_vals = eval_vals
         self.norm_returns = norm_returns
         self.norm_advs = norm_advs
-        self.use_nstep_rets = use_nstep_rets
         self.norm_batch_advs = norm_batch_advs
+        self.eval_vals = eval_vals
+        self.use_nstep_rets = use_nstep_rets
 
         # Data caches
         self.states = []
@@ -51,23 +50,24 @@ class Updater():
 
         # Tracking variables
         self.info = {}
-        self.max_adv = 0
-        self.min_adv = 0
-        self.max_ret = 0
-        self.min_ret = 0
+        self.max_adv = -1
+        self.min_adv = 1
+        self.max_ret = -1
+        self.min_ret = 1
         self.avg_disc_rew = 0
 
         if torch.cuda.is_available():
             torch.FloatTensor = torch.cuda.FloatTensor
             torch.LongTensor = torch.cuda.LongTensor
 
-
-    def update_model(self, states, rewards, dones, actions):
+    def update_model(self, states, next_states, rewards, dones, actions):
         """
         This function accepts the data collected from a rollout and performs PPO update iterations
         on the neural net.
 
         states - python list of the environment states from the rollouts
+                shape = (n_states, *state_shape)
+        next_states - python list of the next environment states from the rollouts
                 shape = (n_states, *state_shape)
         rewards - python list of rewards from the rollouts
                 shape = (n_states,)
@@ -78,18 +78,21 @@ class Updater():
         """
 
         if self.cache_size is not None and self.cache_size > 0:
-            self.states,self.rewards,self.actions,self.dones =self.states+states,\
+            self.states,self.next_states,self.rewards,self.actions,self.dones =self.states+states,\
+                                                                self.next_states+next_states,\
                                                                 self.rewards+rewards,\
                                                                 self.actions+actions,\
                                                                 self.dones+dones
             self.states = self.states[-self.cache_size:]
+            self.next_states = self.next_states[-self.cache_size:]
             self.rewards = self.rewards[-self.cache_size:]
             self.actions = self.actions[-self.cache_size:]
             self.dones = self.dones[-self.cache_size:]
         else:
-            self.states, self.rewards, self.actions, self.dones = states, rewards, actions, dones
+            self.states, self.next_states, self.rewards, self.actions, self.dones = states, next_states, rewards, actions, dones
 
         states = torch.FloatTensor(np.asarray(self.states, dtype=np.float32))
+        next_states = torch.FloatTensor(np.asarray(self.next_states, dtype=np.float32))
         actions = torch.LongTensor(self.actions)
         rewards = torch.FloatTensor(self.rewards)
         dones = torch.FloatTensor(self.dones)
@@ -97,22 +100,26 @@ class Updater():
         self.old_net.req_grads(False)
 
         if not self.fresh_advs:
-            advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
+            advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones,self.eval_vals)
 
         avg_epoch_loss, avg_epoch_policy_loss, avg_epoch_val_loss, avg_epoch_entropy = 0, 0, 0, 0
 
         for epoch in range(self.n_epochs):
 
             if self.fresh_advs:
-                advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
+                advantages, returns = self.make_advs_and_rets(states, next_states, rewards, dones, self.eval_vals)
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
             indices = torch.randperm(states.shape[0]).long()
+            self.net.train(mode=True)
+            self.old_net.train(mode=True)
 
-            for i in range(0,indices.shape[0]-self.batch_size+1, self.batch_size):
+            for i in range(len(indices)//self.batch_size):
                 self.optim.zero_grad()
 
                 # Get data for batch
-                idxs = indices[i:i+self.batch_size]
+                startdx = i*self.batch_size
+                endx = (i+1)*self.batch_size
+                idxs = indices[startdx:endx]
                 batch_data = states[idxs],actions[idxs],advantages[idxs],returns[idxs]
 
                 # Total Loss
@@ -128,7 +135,7 @@ class Updater():
                 epoch_policy_loss += policy_loss.data[0]
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
-                print("Batch:", epoch*len(indices)+i, "/", self.n_epochs*len(indices), end="         \r")
+                print("Batch:", epoch*(len(indices)//self.batch_size)+i, "/", self.n_epochs*(len(indices)//self.batch_size), end="         \r")
 
             self.optim.zero_grad()
             avg_epoch_loss += epoch_loss/self.n_epochs
@@ -139,16 +146,16 @@ class Updater():
         self.info = {"Loss":avg_epoch_loss, "PiLoss":avg_epoch_policy_loss, "VLoss":avg_epoch_val_loss, 
                             "S":avg_epoch_entropy, "AvgDiscRew":self.avg_disc_rew, "MaxAdv":self.max_adv,
                             "MinAdv":self.min_adv, "MaxRet":self.max_ret, "MinRet":self.min_ret} 
-        self.max_adv, self.min_adv, self.max_ret, self.min_ret = 0, 0, 0, 0
+        self.max_adv, self.min_adv, self.max_ret, self.min_ret = -1, 1, -1, 1
 
-    def ppo_losses(self, batch_states, batch_actions, batch_advs, batch_returns):
+    def ppo_losses(self, states, actions, advs, rets):
         """
         Completes the ppo specific loss approach
 
-        batch_states - torch FloatTensor minibatch of states with shape (batch_size, C, H, W)
-        batch_actions - torch LongTensor minibatch of empirical actions with shape (batch_size,)
-        batch_advs - torch FloatTensor minibatch of empirical advantages with shape (batch_size,)
-        batch_returns - torch FloatTensor minibatch of empirical returns with shape (batch_size,)
+        states - torch FloatTensor minibatch of states with shape (batch_size, C, H, W)
+        actions - torch LongTensor minibatch of empirical actions with shape (batch_size,)
+        advs - torch FloatTensor minibatch of empirical advantages with shape (batch_size,)
+        rets - torch FloatTensor minibatch of empirical returns with shape (batch_size,)
 
         Returns:
             policy_loss - the PPO CLIP policy gradient shape (1,)
@@ -156,37 +163,38 @@ class Updater():
             entropy - the entropy of the action predictions shape (1,)
         """
         # Get new Outputs
-        vals, raw_pis = self.net.forward(Variable(batch_states))
+        vals, raw_pis = self.net.forward(Variable(states))
         probs = F.softmax(raw_pis, dim=-1)
-        pis = probs[torch.arange(0,probs.shape[0]).long(), batch_actions]
+        pis = probs[torch.arange(0,len(probs)).long(), actions]
 
         # Get old Outputs
-        old_vals, old_raw_pis = self.old_net.forward(Variable(batch_states))
+        old_vals, old_raw_pis = self.old_net.forward(Variable(states))
         old_vals.detach(), old_raw_pis.detach()
         old_probs = F.softmax(old_raw_pis, dim=-1)
-        old_pis = old_probs[torch.arange(0,old_probs.shape[0]).long(), batch_actions]
+        old_pis = old_probs[torch.arange(0,len(old_probs)).long(), actions]
 
         # Policy Loss
         if self.norm_batch_advs:
-            batch_advs = (batch_advs - batch_advs.mean()) / (batch_advs.std() + 1e-5)
-        self.max_adv = max(torch.max(batch_advs), self.max_adv)
-        self.min_adv = min(torch.min(batch_advs), self.min_adv)
-        batch_advs = Variable(batch_advs)
-        ratio = pis/(old_pis+1e-10) * batch_advs
-        clipped_ratio = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon)*batch_advs
-        policy_loss = -torch.min(ratio, clipped_ratio).mean()
+            advs = (advs - advs.mean()) / (advs.std() + 1e-6)
+        self.max_adv = max(torch.max(advs), self.max_adv) # Tracking variable
+        self.min_adv = min(torch.min(advs), self.min_adv) # Tracking variable
+
+        advs = Variable(advs)
+        ratio = pis/(old_pis+1e-7)
+        surrogate1 = ratio*advs
+        surrogate2 = torch.clamp(ratio, 1.-self.epsilon, 1.+self.epsilon)*advs
+        min_surr = torch.min(surrogate1, surrogate2)
+        policy_loss = -min_surr.mean()
 
         # Value loss
-        self.max_ret = max(torch.max(batch_returns), self.max_ret)
-        self.min_ret = min(torch.min(batch_returns), self.min_ret)
-        batch_returns = Variable(batch_returns)
+        rets = Variable(rets)
         if self.clip_vals:
             clipped_vals = old_vals + torch.clamp(vals-old_vals, -self.epsilon, self.epsilon)
-            v1 = .5*(vals.squeeze()-batch_returns)**2
-            v2 = .5*(clipped_vals.squeeze()-batch_returns)**2
+            v1 = .5*(vals.squeeze()-rets)**2
+            v2 = .5*(clipped_vals.squeeze()-rets)**2
             val_loss = self.val_const * torch.max(v1,v2).mean()
         else:
-            val_loss = self.val_const * (.5*(vals.squeeze()-batch_returns)**2).mean()
+            val_loss = self.val_const * (.5*(vals.squeeze()-rets)**2).mean()
 
         # Entropy Loss
         softlogs = F.log_softmax(raw_pis, dim=-1)
@@ -194,11 +202,12 @@ class Updater():
 
         return policy_loss, val_loss, entropy
 
-    def make_advs_and_rets(self, states, rewards, dones, eval_vals):
+    def make_advs_and_rets(self, states, next_states, rewards, dones, eval_vals):
         """
         Creates the advantages and returns.
 
         states - torch FloatTensor of shape (L, C, H, W)
+        next_states - torch FloatTensor of shape (L, C, H, W)
         rewards - torch FloatTensor of empirical rewards (L,)
         eval_vals - boolean denoting if the net should be in eval mode when making the value predictions
 
@@ -208,11 +217,13 @@ class Updater():
         """
 
         self.net.train(mode=not eval_vals)
+        self.net.req_grads(False)
         vals, raw_pis = self.net.forward(Variable(states))
+        next_vals, _ = self.net.forward(Variable(next_states))
+        del next_states
         self.net.train(mode=True)
-        gae_vals = torch.cat([vals.data.squeeze(), cuda_if(torch.zeros(1))], 0)
-        advantages = self.gae(rewards.squeeze(), gae_vals.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
-
+        self.net.req_grads(True)
+        advantages = self.gae(rewards.squeeze(), vals.data.squeeze(), next_vals.data.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
         disc_rewards = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
         self.avg_disc_rew = disc_rewards.mean()
 
@@ -227,12 +238,13 @@ class Updater():
 
         return advantages, returns
 
-    def gae(self, rewards, values, dones, gamma, lambda_):
+    def gae(self, rewards, values, next_vals, dones, gamma, lambda_):
         """
         Performs Generalized Advantage Estimation
 
         rewards - torch FloatTensor of actual rewards collected. Size = L
-        values - torch FloatTensor of value predictions. Size = L+1
+        values - torch FloatTensor of value predictions. Size = L
+        next_vals - torch FloatTensor of value predictions. Size = L
         dones - torch FloatTensor of done signals. Size = L
         gamma - float discount factor
         lambda_ - float gae moving average factor
@@ -241,7 +253,7 @@ class Updater():
          advantages - torch FloatTensor of genralized advantage estimations. Size = L
         """
 
-        deltas = rewards + gamma*values[1:]*(1-dones) - values[:-1]
+        deltas = rewards + gamma*next_vals*(1-dones) - values
         advantages = self.discount(deltas, dones, gamma*lambda_)
 
         return advantages
