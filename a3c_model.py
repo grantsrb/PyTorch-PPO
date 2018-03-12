@@ -17,12 +17,14 @@ class Model(nn.Module):
         # Embedding Net
         self.convs = nn.ModuleList([])
         shape = input_space.copy()
-        self.conv1 = self.conv_block(input_space[-3],16, ksize=8, stride=4, padding=0 bnorm=bnorm, activation='relu')
+        self.conv1 = self.conv_block(input_space[-3],16, ksize=8, stride=4, padding=0, bnorm=bnorm, activation='relu')
         self.convs.append(self.conv1)
         shape = self.new_shape(shape, 16, ksize=8, stride=4, padding=0)
+
         self.conv2 = self.conv_block(16, 32, ksize=4, stride=2, padding=0, bnorm=bnorm, activation='relu')
         self.convs.append(self.conv2)
         shape = self.new_shape(shape, 32, ksize=4, stride=2, padding=0)
+
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
         self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
@@ -150,9 +152,8 @@ class Model(nn.Module):
         if env_type == "Pong-v0":
             pic = pic[35:195] # crop
             pic = pic[::2,::2,0] # downsample by factor of 2
-            pic[pic == 144] = 0 # erase background (background type 1)
-            pic[pic == 109] = 0 # erase background (background type 2)
-            pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
+            pic = rgb2grey(pic)
+            pic = pic/255.
         elif 'Breakout' in env_type:
             pic = pic[35:] # crop
             #pic = rgb2grey(pic)
