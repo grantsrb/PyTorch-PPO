@@ -237,11 +237,12 @@ if __name__ == '__main__':
 
         # Print Epoch Data
         updater.print_statistics()
-        print("Grad Norm:", updater.norm, "– Avg Action:", np.mean(ep_data[3]))
+        avg_action = np.mean(ep_data[3])
+        print("Grad Norm:", updater.norm, "– Avg Action:", avg_action)
         avg_reward = reward_q.get()
         reward_q.put(avg_reward)
         print("Average Reward:", avg_reward, end='\n\n')
-        updater.log_statistics(log, T, avg_reward)
+        updater.log_statistics(log, T, avg_reward, avg_action)
 
         # Check for memory leaks
         gc.collect()
