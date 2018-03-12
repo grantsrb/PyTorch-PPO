@@ -29,29 +29,30 @@ if __name__ == '__main__':
     lambda_ = .97 # GAE moving average factor
     max_tsteps = 10000000
     n_envs = 10 # Number of environments
-    n_tsteps = 128 # Maximum number of steps to take in an environment for one episode
-    n_rollouts = 20 # Number of times to perform rollouts before updating model
-    val_const = 1 # Scales the value portion of the loss function
+    n_tsteps = 64 # Maximum number of steps to take in an environment for one episode
+    n_rollouts = 32 # Number of times to perform rollouts before updating model
+    val_const = .5 # Scales the value portion of the loss function
     entropy_const = 0.01 # Scales the entropy portion of the loss function
     max_norm = 0.5 # Scales the gradients using their norm
-
-    lr = 1e-3 # Learning rate
-    n_frame_stack = 2 # number of observations to stack for a single environment state
+    lr = 1e-4 # Learning rate
+    n_frame_stack = 4 # number of observations to stack for a single environment state
     n_epochs = 4
     batch_size = 256 # Batch size for PPO epochs
     epsilon = .1 # PPO clipping constant
+    cache_size = 0 # Number of samples in PPO data cache
+    n_past_rews = 30 # Used to track reward spread
+
     decay_eps = True # Decays the PPO clipping constant "epsilon" at the end of every data collection
     decay_lr = False
-    cache_size = 0 # Number of samples in PPO data cache
     fresh_advs = False
     clip_vals = False
     norm_returns = False
     use_nstep_rets = True
     norm_advs = False
-    norm_batch_advs = False
-    use_bnorm = False
+    norm_batch_advs = True
+    use_bnorm = True
     eval_vals = True
-    model_type = 'dense'
+    model_type = 'conv'
     bootstrap_next = True
     resume = False
     render = False
@@ -212,6 +213,7 @@ if __name__ == '__main__':
     updater.net.train(mode=True)
     updater.net.req_grads(True)
 
+    past_rews = [-1]*n_past_rews
     epoch = 0
     T = 0
     while T < max_tsteps:
@@ -220,8 +222,8 @@ if __name__ == '__main__':
         epoch += 1
 
         # Collect data
-        ep_states, ep_rewards, ep_dones, ep_actions = [], [], [], []
-        ep_data = [ep_states, ep_rewards, ep_dones, ep_actions]
+        ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions = [], [], [], [], []
+        ep_data = [ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions]
         for i in range(n_rollouts+2*n_envs):
             data = data_q.get()
             if i >= 2*n_envs:
@@ -230,9 +232,9 @@ if __name__ == '__main__':
             print("Data:", i, "/", n_rollouts+2*n_envs, end="      \r")
         T += len(ep_data[0])
         if decay_eps:
-            updater.epsilon = (1-T/max_tsteps)*epsilon
+            updater.epsilon = (1-T/(max_tsteps*1.1))*epsilon
         if decay_lr:
-            new_lr = (1-T/max_tsteps)*lr
+            new_lr = (1-T/(max_tsteps*1.1))*lr
             state_dict = updater.optim.state_dict()
             updater.optim = optim.Adam(updater.net.parameters(), lr=new_lr)
             updater.optim.load_state_dict(state_dict)
@@ -244,11 +246,14 @@ if __name__ == '__main__':
 
         # Print Epoch Data
         updater.print_statistics()
-        avg_action = np.mean(ep_data[3])
+        avg_action = np.mean(ep_data[4])
         print("Grad Norm:", updater.norm, "– Avg Action:", avg_action)
         avg_reward = reward_q.get()
         reward_q.put(avg_reward)
-        print("Average Reward:", avg_reward, end='\n\n')
+        past_rews.append(avg_reward)
+        past_rews = past_rews[-n_past_rews:]
+        past_rews_sort = sorted(past_rews)
+        print("Average Reward:", avg_reward, "– High:", past_rews_sort[-1], "– Low:", past_rews_sort[0], end='\n')
         updater.log_statistics(log, T, avg_reward, avg_action)
 
         # Check for memory leaks
