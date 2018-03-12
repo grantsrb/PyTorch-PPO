@@ -11,6 +11,7 @@ import copy
 import time
 import dense_model
 import conv_model
+import a3c_model
 
 def cuda_if(obj):
     if torch.cuda.is_available():
@@ -25,16 +26,16 @@ if __name__ == '__main__':
 
     # Hyperparameters
     gamma = .99 # Reward discount factor
-    lambda_ = .98 # GAE moving average factor
+    lambda_ = .97 # GAE moving average factor
     max_tsteps = 10000000
     n_envs = 10 # Number of environments
     n_tsteps = 128 # Maximum number of steps to take in an environment for one episode
     n_rollouts = 20 # Number of times to perform rollouts before updating model
     val_const = 1 # Scales the value portion of the loss function
-    entropy_const = 0.001 # Scales the entropy portion of the loss function
-    max_norm = 0.1 # Scales the gradients using their norm
+    entropy_const = 0.01 # Scales the entropy portion of the loss function
+    max_norm = 0.5 # Scales the gradients using their norm
 
-    lr = 2.5e-4 # Learning rate
+    lr = 1e-3 # Learning rate
     n_frame_stack = 2 # number of observations to stack for a single environment state
     n_epochs = 4
     batch_size = 256 # Batch size for PPO epochs
@@ -51,6 +52,7 @@ if __name__ == '__main__':
     use_bnorm = False
     eval_vals = True
     model_type = 'dense'
+    bootstrap_next = True
     resume = False
     render = False
 
@@ -109,6 +111,8 @@ if __name__ == '__main__':
             elif "use_bnorm" in str_arg: use_bnorm = True
             elif "eval_vals=False" in str_arg: eval_vals = False
             elif "eval_vals" in str_arg: eval_vals = True
+            elif "bootstrap_next=False" == str_arg: bootstrap_next = False
+            elif "bootstrap_next=True" == str_arg: bootstrap_next = True
 
     hyperdict = dict()
     hyperdict["exp_name"] = exp_name
@@ -141,6 +145,7 @@ if __name__ == '__main__':
     hyperdict["norm_batch_advs"] = norm_batch_advs
     hyperdict["use_bnorm"] = use_bnorm
     hyperdict["eval_vals"] = eval_vals
+    hyperdict["bootstrap_next"] = bootstrap_next
     hyperdict["decay_lr"] = decay_lr
     hyperdict["resume"] = resume
     hyperdict["render"] = render
@@ -156,6 +161,8 @@ if __name__ == '__main__':
         Model = dense_model.Model
     elif 'conv' in model_type:
         Model = conv_model.Model
+    elif 'a3c' in model_type:
+        Model = a3c_model.Model
     else:
         Model = dense_model.Model
     net_save_file = exp_name+"_net.p"
@@ -173,7 +180,7 @@ if __name__ == '__main__':
 
     collectors = []
     for i in range(n_envs):
-        collector = Collector(reward_q, grid_size=grid_size, n_foods=n_foods, unit_size=unit_size, n_frame_stack=n_frame_stack, net=None, n_tsteps=n_tsteps, gamma=gamma, env_type=env_type, preprocessor=Model.preprocess)
+        collector = Collector(reward_q, grid_size=grid_size, n_foods=n_foods, unit_size=unit_size, n_frame_stack=n_frame_stack, net=None, n_tsteps=n_tsteps, gamma=gamma, env_type=env_type, preprocessor=Model.preprocess, bootstrap_next=bootstrap_next)
         collectors.append(collector)
 
     print("Obs Shape:,",collectors[0].obs_shape)
