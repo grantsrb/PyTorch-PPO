@@ -17,18 +17,23 @@ class Model(nn.Module):
         # Embedding Net
         self.convs = nn.ModuleList([])
         shape = input_space.copy()
-        self.conv1 = self.conv_block(input_space[-3],32, stride=2, bnorm=bnorm, activation='elu')
+
+        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=2, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
-        shape = self.new_shape(shape, 32)
-        self.conv2 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
+        shape = self.new_shape(shape, 16, ksize=7, stride=2, padding=0)
+
+        self.conv2 = self.conv_block(16, 32, ksize=3, stride=1, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv2)
-        shape = self.new_shape(shape, 32)
-        self.conv3 = self.conv_block(32, 32, stride=2,bnorm=bnorm, activation='elu')
+        shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=0) 
+
+        self.conv3 = self.conv_block(32, 32, ksize=3, stride=1, padding=0,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv3)
-        shape = self.new_shape(shape, 32)
-        self.conv4 = self.conv_block(32, 32, stride=2, bnorm=bnorm, activation='elu')
-        self.convs.append(self.conv4)
-        shape = self.new_shape(shape, 32)
+        shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=0)
+
+        self.conv3 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        self.convs.append(self.conv3)
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
         self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
