@@ -50,11 +50,12 @@ class Updater():
         self.advantages = []
 
         # Tracking variables
-        self.avg_loss = None
         self.info = {}
-        self.max_rew = 0
-        self.min_rew = 0
-        self.avg_rew = 0
+        self.max_adv = 0
+        self.min_adv = 0
+        self.max_ret = 0
+        self.min_ret = 0
+        self.avg_disc_rew = 0
 
         if torch.cuda.is_available():
             torch.FloatTensor = torch.cuda.FloatTensor
@@ -98,7 +99,7 @@ class Updater():
         if not self.fresh_advs:
             advantages, returns = self.make_advs_and_rets(states, rewards, dones, self.eval_vals)
 
-        total_epoch_loss, total_epoch_policy_loss, total_epoch_val_loss, total_epoch_entropy = 0, 0, 0, 0
+        avg_epoch_loss, avg_epoch_policy_loss, avg_epoch_val_loss, avg_epoch_entropy = 0, 0, 0, 0
 
         for epoch in range(self.n_epochs):
 
@@ -130,24 +131,15 @@ class Updater():
                 print("Batch:", epoch*len(indices)+i, "/", self.n_epochs*len(indices), end="         \r")
 
             self.optim.zero_grad()
-            total_epoch_loss += epoch_loss
-            total_epoch_policy_loss += epoch_policy_loss
-            total_epoch_val_loss += epoch_val_loss
-            total_epoch_entropy += epoch_entropy
-            if self.avg_loss is None:
-                self.avg_loss,self.avg_policy_loss,self.avg_val_loss,self.avg_entropy = \
-                                    epoch_loss,epoch_policy_loss,epoch_val_loss,epoch_entropy
-            else:
-                self.avg_loss = .99*self.avg_loss + .01*epoch_loss
-                self.avg_policy_loss = .99*self.avg_policy_loss + .01*epoch_policy_loss
-                self.avg_val_loss = .99*self.avg_val_loss + .01*epoch_val_loss
-                self.avg_entropy = .99*self.avg_entropy + .01*epoch_entropy
+            avg_epoch_loss += epoch_loss/self.n_epochs
+            avg_epoch_policy_loss += epoch_policy_loss/self.n_epochs
+            avg_epoch_val_loss += epoch_val_loss/self.n_epochs
+            avg_epoch_entropy += epoch_entropy/self.n_epochs
 
-            self.info = {"Global Loss":self.avg_loss,
-                        "Policy Loss":self.avg_policy_loss,
-                        "Value Loss":self.avg_val_loss,
-                        "Entropy":self.avg_entropy}
-        print("Update Avgs – L:", total_epoch_loss/self.n_epochs, "– PL:", total_epoch_policy_loss/self.n_epochs, "– VL:", total_epoch_val_loss/self.n_epochs, "– S:", total_epoch_entropy/self.n_epochs)
+        self.info = {"Loss":avg_epoch_loss, "PiLoss":avg_epoch_policy_loss, "VLoss":avg_epoch_val_loss, 
+                            "S":avg_epoch_entropy, "AvgDiscRew":self.avg_disc_rew, "MaxAdv":self.max_adv,
+                            "MinAdv":self.min_adv, "MaxRet":self.max_ret, "MinRet":self.min_ret} 
+        self.max_adv, self.min_adv, self.max_ret, self.min_ret = 0, 0, 0, 0
 
     def ppo_losses(self, batch_states, batch_actions, batch_advs, batch_returns):
         """
@@ -177,12 +169,16 @@ class Updater():
         # Policy Loss
         if self.norm_batch_advs:
             batch_advs = (batch_advs - batch_advs.mean()) / (batch_advs.std() + 1e-5)
+        self.max_adv = max(torch.max(batch_advs), self.max_adv)
+        self.min_adv = min(torch.min(batch_advs), self.min_adv)
         batch_advs = Variable(batch_advs)
         ratio = pis/(old_pis+1e-10) * batch_advs
         clipped_ratio = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon)*batch_advs
         policy_loss = -torch.min(ratio, clipped_ratio).mean()
 
         # Value loss
+        self.max_ret = max(torch.max(batch_returns), self.max_ret)
+        self.min_ret = min(torch.min(batch_returns), self.min_ret)
         batch_returns = Variable(batch_returns)
         if self.clip_vals:
             clipped_vals = old_vals + torch.clamp(vals-old_vals, -self.epsilon, self.epsilon)
@@ -211,14 +207,19 @@ class Updater():
             returns - torch FloatTensor of shape (L,)
         """
 
-        self.net.train(mode= not eval_vals)
+        self.net.train(mode=not eval_vals)
         vals, raw_pis = self.net.forward(Variable(states))
         self.net.train(mode=True)
         gae_vals = torch.cat([vals.data.squeeze(), cuda_if(torch.zeros(1))], 0)
         advantages = self.gae(rewards.squeeze(), gae_vals.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
 
+        disc_rewards = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
+        self.avg_disc_rew = disc_rewards.mean()
+
         if self.use_nstep_rets: returns = advantages + vals.data.squeeze()
-        else: returns = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
+        else: returns = disc_rewards
+        self.max_ret = max(torch.max(returns), self.max_ret)
+        self.min_ret = min(torch.min(returns), self.min_ret)
         if self.norm_advs:
             advantages = (advantages-advantages.mean())/(advantages.std()+1e-5)
         if self.norm_returns:
@@ -265,7 +266,7 @@ class Updater():
         return discounts
 
     def print_statistics(self):
-        print("Running Avgs:"+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]))
+        print("\n".join([key+": "+str(round(val,5)) for key,val in sorted(self.info.items())]))
 
     def log_statistics(self, log, T, reward, avg_action):
         log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward), "AvgAction: "+str(avg_action)]) + '\n')
