@@ -13,7 +13,7 @@ class Collector():
     This class handles the collection of data by interacting with the environments.
     """
 
-    def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=2, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, bootstrap_next=False):
+    def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=4, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, bootstrap_next=False):
 
         self.preprocess = preprocessor
         self.bootstrap_next = bootstrap_next
@@ -84,7 +84,7 @@ class Collector():
         """
 
         state = self.state_bookmark
-        states, rewards, dones, actions = [], [], [], []
+        states, next_states, rewards, dones, actions = [], [], [], [], []
         breakout = 'Breakout' in self.env_type
         for i in range(self.n_tsteps):
             tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
@@ -110,6 +110,7 @@ class Collector():
 
             states.append(state), rewards.append(reward), dones.append(done), actions.append(action)
             state = self.next_state(self.env, state, obs, reset)
+            next_states.append(state)
 
         self.state_bookmark = state
         if not done:
@@ -121,7 +122,7 @@ class Collector():
                 rewards[-1] = rewards[-1] + val.squeeze().data[0] # Bootstrapped value
             dones[-1] = True
 
-        return states, rewards, dones, actions
+        return states, next_states, rewards, dones, actions
 
     def get_action(self, pi):
         """
