@@ -7,7 +7,7 @@ from skimage.transform import resize
 from skimage.color import rgb2grey
 
 class Model(nn.Module):
-    def __init__(self, input_space, output_space, emb_size=256, bnorm=False):
+    def __init__(self, input_space, output_space, emb_size=200, bnorm=False):
         super(Model, self).__init__()
         self.input_space = input_space
         self.output_space = output_space
@@ -18,28 +18,37 @@ class Model(nn.Module):
         self.convs = nn.ModuleList([])
         shape = input_space.copy()
 
-        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=1, padding=0, bnorm=bnorm, activation='elu')
+        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=2, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv1)
-        shape = self.new_shape(shape, 16, ksize=7, stride=1, padding=0)
+        shape = self.new_shape(shape, 16, ksize=7, stride=2, padding=0)
 
-        self.conv2 = self.conv_block(16, 32, ksize=3, stride=1, padding=0, bnorm=bnorm, activation='elu')
+        self.conv2 = self.conv_block(16, 32, ksize=3, stride=2, padding=0, bnorm=bnorm, activation='elu')
         self.convs.append(self.conv2)
-        shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=0) 
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0) 
 
-        self.conv3 = self.conv_block(32, 32, ksize=3, stride=1, padding=0,bnorm=bnorm, activation='elu')
+        self.conv3 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv3)
-        shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=0)
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
         self.conv4 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='elu')
         self.convs.append(self.conv4)
         shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
-        self.conv5 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
-        self.convs.append(self.conv5)
-        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+        #self.conv5 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        #self.convs.append(self.conv5)
+        #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+
+        #self.conv6 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        #self.convs.append(self.conv6)
+        #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+
+        #self.conv7 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        #self.convs.append(self.conv7)
+        #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
         self.features = nn.Sequential(*self.convs)
         self.flat_size = int(np.prod(shape))
+        print("Features Shape", shape)
         print("Features Flat Size:", self.flat_size)
         self.proj_matrx = nn.Linear(self.flat_size, self.emb_size)
 
