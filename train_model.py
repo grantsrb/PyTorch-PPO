@@ -3,6 +3,7 @@ from collector import Collector
 from updater import Updater
 import torch
 from torch.autograd import Variable
+import torch.optim as optim
 import numpy as np
 import gc
 import resource
@@ -46,7 +47,6 @@ if __name__ == '__main__':
     decay_lr = False
     fresh_advs = False
     clip_vals = False
-    norm_returns = False
     use_nstep_rets = True
     norm_advs = False
     norm_batch_advs = True
@@ -74,7 +74,6 @@ if __name__ == '__main__':
             if "val_const=" in str_arg: val_const = float(str_arg[len("val_const="):])
             if "entropy_const=" in str_arg: entropy_const = float(str_arg[len("entropy_const="):])
             if "max_norm=" in str_arg: max_norm = float(str_arg[len("max_norm="):])
-            if "lr=" in str_arg: lr = float(str_arg[len("lr="):])
             if "grid_size=" in str_arg: grid_size= [int(str_arg[len('grid_size='):]),int(str_arg[len('grid_size='):])]
             if "n_foods=" in str_arg: n_foods= int(str_arg[len('n_foods='):])
             if "n_epochs=" in str_arg: n_epochs= int(str_arg[len('n_epochs='):])
@@ -98,10 +97,9 @@ if __name__ == '__main__':
             elif "decay_eps" in str_arg: decay_eps = True
             elif "decay_lr=False" in str_arg: decay_lr = False
             elif "decay_lr" in str_arg: decay_lr = True
+            elif "lr=" in str_arg: lr = float(str_arg[len("lr="):])
             elif "clip_vals=False" in str_arg: clip_vals = False
             elif "clip_vals" in str_arg: clip_vals = True
-            elif "norm_returns=False" in str_arg: norm_returns = False
-            elif "norm_returns" in str_arg: norm_returns = True
             elif "use_nstep_rets=False" in str_arg: use_nstep_rets = False
             elif "use_nstep_rets" in str_arg: use_nstep_rets = True
             elif "norm_advs=False" in str_arg: norm_advs = False
@@ -140,7 +138,6 @@ if __name__ == '__main__':
     hyperdict["fresh_advs"] = fresh_advs
     hyperdict["clip_vals"] = clip_vals
     hyperdict["decay_eps"] = decay_eps
-    hyperdict["norm_returns"] = norm_returns
     hyperdict["use_nstep_rets"] = use_nstep_rets
     hyperdict["norm_advs"] = norm_advs
     hyperdict["norm_batch_advs"] = norm_batch_advs
@@ -205,7 +202,7 @@ if __name__ == '__main__':
         data_producers.append(data_producer)
         data_producer.start()
 
-    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_returns=norm_returns, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals, use_nstep_rets=use_nstep_rets)
+    updater = Updater(target_net, lr, entropy_const=entropy_const, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, fresh_advs=fresh_advs, clip_vals=clip_vals, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals, use_nstep_rets=use_nstep_rets)
     if resume:
         updater.optim.load_state_dict(torch.load(optim_save_file))
 
