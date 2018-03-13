@@ -19,7 +19,7 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_returns=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
+    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
         self.net = net
         self.old_net = copy.deepcopy(self.net)
         self.optim = optim.Adam(self.net.parameters(), lr=lr)
@@ -34,7 +34,6 @@ class Updater():
         self.epsilon = epsilon
         self.fresh_advs = fresh_advs
         self.clip_vals = clip_vals
-        self.norm_returns = norm_returns
         self.norm_advs = norm_advs
         self.norm_batch_advs = norm_batch_advs
         self.eval_vals = eval_vals
@@ -104,17 +103,17 @@ class Updater():
 
         avg_epoch_loss, avg_epoch_policy_loss, avg_epoch_val_loss, avg_epoch_entropy = 0, 0, 0, 0
 
+        self.optim.zero_grad()
         for epoch in range(self.n_epochs):
 
             if self.fresh_advs:
                 advantages, returns = self.make_advs_and_rets(states, next_states, rewards, dones, self.eval_vals)
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
-            indices = torch.randperm(states.shape[0]).long()
+            indices = torch.randperm(len(states)).long()
             self.net.train(mode=True)
             self.old_net.train(mode=True)
 
             for i in range(len(indices)//self.batch_size):
-                self.optim.zero_grad()
 
                 # Get data for batch
                 startdx = i*self.batch_size
@@ -131,13 +130,13 @@ class Updater():
                 self.norm = nn.utils.clip_grad_norm(self.net.parameters(), self.max_norm)
                 self.net.check_grads()
                 self.optim.step()
+                self.optim.zero_grad()
                 epoch_loss += loss.data[0]
                 epoch_policy_loss += policy_loss.data[0]
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
                 print("Batch:", epoch*(len(indices)//self.batch_size)+i, "/", self.n_epochs*(len(indices)//self.batch_size), end="         \r")
 
-            self.optim.zero_grad()
             avg_epoch_loss += epoch_loss/self.n_epochs
             avg_epoch_policy_loss += epoch_policy_loss/self.n_epochs
             avg_epoch_val_loss += epoch_val_loss/self.n_epochs
@@ -180,7 +179,7 @@ class Updater():
         self.min_adv = min(torch.min(advs), self.min_adv) # Tracking variable
 
         advs = Variable(advs)
-        ratio = pis/(old_pis+1e-7)
+        ratio = pis/(old_pis+1e-10)
         surrogate1 = ratio*advs
         surrogate2 = torch.clamp(ratio, 1.-self.epsilon, 1.+self.epsilon)*advs
         min_surr = torch.min(surrogate1, surrogate2)
@@ -223,6 +222,7 @@ class Updater():
         del next_states
         self.net.train(mode=True)
         self.net.req_grads(True)
+
         advantages = self.gae(rewards.squeeze(), vals.data.squeeze(), next_vals.data.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
         disc_rewards = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
         self.avg_disc_rew = disc_rewards.mean()
@@ -233,8 +233,6 @@ class Updater():
         self.min_ret = min(torch.min(returns), self.min_ret)
         if self.norm_advs:
             advantages = (advantages-advantages.mean())/(advantages.std()+1e-5)
-        if self.norm_returns:
-            returns = (returns-returns.mean())/(returns.std()+1e-5)
 
         return advantages, returns
 
