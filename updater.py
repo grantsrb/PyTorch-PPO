@@ -53,6 +53,8 @@ class Updater():
         self.min_adv = 1
         self.max_ret = -1
         self.min_ret = 1
+        self.max_minsurr = -1e10
+        self.min_minsurr = 1e10
         self.avg_disc_rew = 0
 
         if torch.cuda.is_available():
@@ -77,6 +79,7 @@ class Updater():
         """
 
         if self.cache_size is not None and self.cache_size > 0:
+            print("Using Cache")
             self.states,self.next_states,self.rewards,self.actions,self.dones =self.states+states,\
                                                                 self.next_states+next_states,\
                                                                 self.rewards+rewards,\
@@ -90,24 +93,25 @@ class Updater():
         else:
             self.states, self.next_states, self.rewards, self.actions, self.dones = states, next_states, rewards, actions, dones
 
-        states = torch.FloatTensor(np.asarray(self.states, dtype=np.float32))
-        next_states = torch.FloatTensor(np.asarray(self.next_states, dtype=np.float32))
+        states = torch.FloatTensor(np.asarray(self.states.copy()))
+        next_states = torch.FloatTensor(np.asarray(self.next_states.copy()))
         actions = torch.LongTensor(self.actions)
         rewards = torch.FloatTensor(self.rewards)
         dones = torch.FloatTensor(self.dones)
-        self.old_net.load_state_dict(self.net.state_dict())
-        self.old_net.req_grads(False)
 
         if not self.fresh_advs:
-            advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones,self.eval_vals)
+            advantages,returns=self.make_advs_and_rets(states,next_states,rewards,dones)
 
         avg_epoch_loss, avg_epoch_policy_loss, avg_epoch_val_loss, avg_epoch_entropy = 0, 0, 0, 0
+
+        self.old_net.load_state_dict(self.net.state_dict())
+        self.old_net.req_grads(False)
 
         self.optim.zero_grad()
         for epoch in range(self.n_epochs):
 
             if self.fresh_advs:
-                advantages, returns = self.make_advs_and_rets(states, next_states, rewards, dones, self.eval_vals)
+                advantages, returns = self.make_advs_and_rets(states, next_states, rewards, dones)
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
             indices = torch.randperm(len(states)).long()
             self.net.train(mode=True)
@@ -144,8 +148,10 @@ class Updater():
 
         self.info = {"Loss":avg_epoch_loss, "PiLoss":avg_epoch_policy_loss, "VLoss":avg_epoch_val_loss, 
                             "S":avg_epoch_entropy, "AvgDiscRew":self.avg_disc_rew, "MaxAdv":self.max_adv,
-                            "MinAdv":self.min_adv, "MaxRet":self.max_ret, "MinRet":self.min_ret} 
+                            "MinAdv":self.min_adv, "MaxRet":self.max_ret, "MinRet":self.min_ret, 
+                            "MinSurr":self.min_minsurr, "MaxSurr":self.max_minsurr} 
         self.max_adv, self.min_adv, self.max_ret, self.min_ret = -1, 1, -1, 1
+        self.max_minsurr, self.min_minsurr = -1e10, 1e10
 
     def ppo_losses(self, states, actions, advs, rets):
         """
@@ -183,6 +189,8 @@ class Updater():
         surrogate1 = ratio*advs
         surrogate2 = torch.clamp(ratio, 1.-self.epsilon, 1.+self.epsilon)*advs
         min_surr = torch.min(surrogate1, surrogate2)
+        torch.max_minsurr = max(torch.max(min_surr.data), torch.max_minsurr)
+        torch.min_minsurr = min(torch.min(min_surr.data), torch.min_minsurr)
         policy_loss = -min_surr.mean()
 
         # Value loss
@@ -201,21 +209,20 @@ class Updater():
 
         return policy_loss, val_loss, entropy
 
-    def make_advs_and_rets(self, states, next_states, rewards, dones, eval_vals):
+    def make_advs_and_rets(self, states, next_states, rewards, dones):
         """
         Creates the advantages and returns.
 
         states - torch FloatTensor of shape (L, C, H, W)
         next_states - torch FloatTensor of shape (L, C, H, W)
         rewards - torch FloatTensor of empirical rewards (L,)
-        eval_vals - boolean denoting if the net should be in eval mode when making the value predictions
 
         Returns:
             advantages - torch FloatTensor of shape (L,)
             returns - torch FloatTensor of shape (L,)
         """
 
-        self.net.train(mode=not eval_vals)
+        self.net.train(mode=not self.eval_vals)
         self.net.req_grads(False)
         vals, raw_pis = self.net.forward(Variable(states))
         next_vals, _ = self.net.forward(Variable(next_states))
