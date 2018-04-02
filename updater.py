@@ -19,10 +19,10 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True):
-        self.net = net
-        self.old_net = copy.deepcopy(self.net)
-        self.optim = optim.Adam(self.net.parameters(), lr=lr)
+    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True): 
+        self.net = net 
+        self.old_net = copy.deepcopy(self.net) 
+        self.optim = optim.Adam(self.net.parameters(), lr=lr) 
         self.entropy_const = entropy_const
         self.val_const = value_const
         self.gamma = gamma
@@ -180,17 +180,17 @@ class Updater():
 
         # Policy Loss
         if self.norm_batch_advs:
-            advs = (advs - advs.mean()) / (advs.std() + 1e-6)
+            advs = (advs - advs.mean()) / (advs.std() + 1e-5)
         self.max_adv = max(torch.max(advs), self.max_adv) # Tracking variable
         self.min_adv = min(torch.min(advs), self.min_adv) # Tracking variable
 
         advs = Variable(advs)
-        ratio = pis/(old_pis+1e-10)
+        ratio = pis/(old_pis+1e-5)
         surrogate1 = ratio*advs
         surrogate2 = torch.clamp(ratio, 1.-self.epsilon, 1.+self.epsilon)*advs
         min_surr = torch.min(surrogate1, surrogate2)
-        torch.max_minsurr = max(torch.max(min_surr.data), torch.max_minsurr)
-        torch.min_minsurr = min(torch.min(min_surr.data), torch.min_minsurr)
+        self.max_minsurr = max(torch.max(min_surr.data), self.max_minsurr)
+        self.min_minsurr = min(torch.min(min_surr.data), self.min_minsurr)
         policy_loss = -min_surr.mean()
 
         # Value loss

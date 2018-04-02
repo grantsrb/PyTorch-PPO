@@ -221,9 +221,9 @@ if __name__ == '__main__':
         # Collect data
         ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions = [], [], [], [], []
         ep_data = [ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions]
-        for i in range(n_rollouts+2*n_envs):
+        for i in range(2*n_rollouts):
             data = data_q.get()
-            if i >= 2*n_envs:
+            if i >= n_rollouts:
                 for j in range(len(ep_data)):
                     ep_data[j] += data[j]
             print("Data:", i, "/", n_rollouts+2*n_envs, end="      \r")

@@ -18,31 +18,31 @@ class Model(nn.Module):
         self.convs = nn.ModuleList([])
         shape = input_space.copy()
 
-        self.conv1 = self.conv_block(input_space[-3], 16, ksize=7, stride=2, padding=0, bnorm=bnorm, activation='elu')
+        self.conv1 = self.conv_block(input_space[-3], 16, ksize=5, stride=1, padding=0, bnorm=bnorm, activation='relu')
         self.convs.append(self.conv1)
-        shape = self.new_shape(shape, 16, ksize=7, stride=2, padding=0)
+        shape = self.new_shape(shape, 16, ksize=5, stride=1, padding=0)
 
-        self.conv2 = self.conv_block(16, 32, ksize=3, stride=2, padding=0, bnorm=bnorm, activation='elu')
+        self.conv2 = self.conv_block(16, 32, ksize=3, stride=1, padding=1, bnorm=bnorm, activation='relu')
         self.convs.append(self.conv2)
-        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0) 
+        shape = self.new_shape(shape, 32, ksize=3, stride=1, padding=1) 
 
-        self.conv3 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='elu')
+        self.conv3 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='relu')
         self.convs.append(self.conv3)
         shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
-        self.conv4 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='elu')
+        self.conv4 = self.conv_block(32, 32, ksize=3, stride=2, padding=0,bnorm=bnorm, activation='relu')
         self.convs.append(self.conv4)
         shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
-        #self.conv5 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
-        #self.convs.append(self.conv5)
-        #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+        self.conv5 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='relu')
+        self.convs.append(self.conv5)
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
-        #self.conv6 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
-        #self.convs.append(self.conv6)
-        #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
+        self.conv6 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='relu')
+        self.convs.append(self.conv6)
+        shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
-        #self.conv7 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='elu')
+        #self.conv7 = self.conv_block(32, 32, ksize=3, stride=2,padding=0,bnorm=bnorm, activation='relu')
         #self.convs.append(self.conv7)
         #shape = self.new_shape(shape, 32, ksize=3, stride=2, padding=0)
 
@@ -108,7 +108,7 @@ class Model(nn.Module):
         h2 - Variable FloatTensor of the next state embedding
         """
 
-        intmd = F.elu(self.inv_dyn1(h1)+self.inv_dyn2(h2))
+        intmd = F.relu(self.inv_dyn1(h1)+self.inv_dyn2(h2))
         action = self.inv_dyn3(intmd)
         return action
 
@@ -238,6 +238,6 @@ class FwdDynamics(nn.Module):
         print(a.shape)
 
         actions = self.action_one_hots[a]
-        mid = F.elu(self.fwd_dyn1(h)+self.action_layer(actions))
+        mid = F.relu(self.fwd_dyn1(h)+self.action_layer(actions))
         pred = self.fwd_dyn2(mid)
         return pred
