@@ -19,11 +19,11 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entropy_const=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True): 
+    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True): 
         self.net = net 
         self.old_net = copy.deepcopy(self.net) 
         self.optim = optim.Adam(self.net.parameters(), lr=lr) 
-        self.entropy_const = entropy_const
+        self.entr_coef = entr_coef
         self.val_const = value_const
         self.gamma = gamma
         self.lambda_ = lambda_
@@ -51,11 +51,8 @@ class Updater():
         self.info = {}
         self.max_adv = -1
         self.min_adv = 1
-        self.max_ret = -1
-        self.min_ret = 1
         self.max_minsurr = -1e10
         self.min_minsurr = 1e10
-        self.avg_disc_rew = 0
 
         if torch.cuda.is_available():
             torch.FloatTensor = torch.cuda.FloatTensor
@@ -98,24 +95,18 @@ class Updater():
         actions = torch.LongTensor(self.actions)
         rewards = torch.FloatTensor(self.rewards)
         dones = torch.FloatTensor(self.dones)
+        advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones)
 
-        if not self.fresh_advs:
-            advantages,returns=self.make_advs_and_rets(states,next_states,rewards,dones)
-
-        avg_epoch_loss, avg_epoch_policy_loss, avg_epoch_val_loss, avg_epoch_entropy = 0, 0, 0, 0
-
+        avg_epoch_loss,avg_epoch_policy_loss,avg_epoch_val_loss,avg_epoch_entropy = 0,0,0,0
+        self.net.train(mode=True)
         self.old_net.load_state_dict(self.net.state_dict())
+        self.old_net.train(mode=True)
         self.old_net.req_grads(False)
-
         self.optim.zero_grad()
         for epoch in range(self.n_epochs):
 
-            if self.fresh_advs:
-                advantages, returns = self.make_advs_and_rets(states, next_states, rewards, dones)
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
             indices = torch.randperm(len(states)).long()
-            self.net.train(mode=True)
-            self.old_net.train(mode=True)
 
             for i in range(len(indices)//self.batch_size):
 
@@ -132,26 +123,32 @@ class Updater():
                 # Gradient Step
                 loss.backward()
                 self.norm = nn.utils.clip_grad_norm(self.net.parameters(), self.max_norm)
-                self.net.check_grads()
                 self.optim.step()
                 self.optim.zero_grad()
                 epoch_loss += loss.data[0]
                 epoch_policy_loss += policy_loss.data[0]
                 epoch_val_loss += val_loss.data[0]
                 epoch_entropy += entropy.data[0]
-                print("Batch:", epoch*(len(indices)//self.batch_size)+i, "/", self.n_epochs*(len(indices)//self.batch_size), end="         \r")
+                print("Batch:", epoch*(len(indices)//self.batch_size)+i,\
+                                        "/", self.n_epochs*(len(indices)//self.batch_size),\
+                                        end="         \r")
 
             avg_epoch_loss += epoch_loss/self.n_epochs
             avg_epoch_policy_loss += epoch_policy_loss/self.n_epochs
             avg_epoch_val_loss += epoch_val_loss/self.n_epochs
             avg_epoch_entropy += epoch_entropy/self.n_epochs
 
-        self.info = {"Loss":avg_epoch_loss, "PiLoss":avg_epoch_policy_loss, "VLoss":avg_epoch_val_loss, 
-                            "S":avg_epoch_entropy, "AvgDiscRew":self.avg_disc_rew, "MaxAdv":self.max_adv,
-                            "MinAdv":self.min_adv, "MaxRet":self.max_ret, "MinRet":self.min_ret, 
-                            "MinSurr":self.min_minsurr, "MaxSurr":self.max_minsurr} 
-        self.max_adv, self.min_adv, self.max_ret, self.min_ret = -1, 1, -1, 1
+        self.info = {"Loss":avg_epoch_loss, 
+                    "PiLoss":avg_epoch_policy_loss, 
+                    "VLoss":avg_epoch_val_loss, 
+                    "S":avg_epoch_entropy, 
+                    "MaxAdv":self.max_adv,
+                    "MinAdv":self.min_adv, 
+                    "MinSurr":self.min_minsurr, 
+                    "MaxSurr":self.max_minsurr} 
+        self.max_adv, self.min_adv, = -1, 1
         self.max_minsurr, self.min_minsurr = -1e10, 1e10
+        del states, actions, advantages, returns
 
     def ppo_losses(self, states, actions, advs, rets):
         """
@@ -180,7 +177,8 @@ class Updater():
 
         # Policy Loss
         if self.norm_batch_advs:
-            advs = (advs - advs.mean()) / (advs.std() + 1e-5)
+            advs = (advs - advs.mean())
+            advs = advs / (advs.std() + 1e-7)
         self.max_adv = max(torch.max(advs), self.max_adv) # Tracking variable
         self.min_adv = min(torch.min(advs), self.min_adv) # Tracking variable
 
@@ -201,11 +199,12 @@ class Updater():
             v2 = .5*(clipped_vals.squeeze()-rets)**2
             val_loss = self.val_const * torch.max(v1,v2).mean()
         else:
-            val_loss = self.val_const * (.5*(vals.squeeze()-rets)**2).mean()
+            val_loss = self.val_const * F.mse_loss(vals.squeeze(), rets)
 
         # Entropy Loss
         softlogs = F.log_softmax(raw_pis, dim=-1)
-        entropy = -self.entropy_const * torch.mean(torch.sum(softlogs*probs, dim=-1))
+        entropy_step = torch.sum(softlogs*probs, dim=-1)
+        entropy = -self.entr_coef * torch.mean(entropy_step)
 
         return policy_loss, val_loss, entropy
 
@@ -231,15 +230,15 @@ class Updater():
         self.net.req_grads(True)
 
         advantages = self.gae(rewards.squeeze(), vals.data.squeeze(), next_vals.data.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
-        disc_rewards = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
-        self.avg_disc_rew = disc_rewards.mean()
 
-        if self.use_nstep_rets: returns = advantages + vals.data.squeeze()
-        else: returns = disc_rewards
-        self.max_ret = max(torch.max(returns), self.max_ret)
-        self.min_ret = min(torch.min(returns), self.min_ret)
+        if self.use_nstep_rets: 
+            returns = advantages + vals.data.squeeze()
+        else: 
+            returns = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
+        del rewards, dones
         if self.norm_advs:
-            advantages = (advantages-advantages.mean())/(advantages.std()+1e-5)
+            advantages = (advantages-advantages.mean())
+            advantages = advantages/(advantages.std()+1e-7)
 
         return advantages, returns
 
@@ -259,9 +258,8 @@ class Updater():
         """
 
         deltas = rewards + gamma*next_vals*(1-dones) - values
-        advantages = self.discount(deltas, dones, gamma*lambda_)
-
-        return advantages
+        del next_vals
+        return self.discount(deltas, dones, gamma*lambda_)
 
     def discount(self, array, dones, discount_factor):
         """
@@ -273,7 +271,6 @@ class Updater():
 
         Returns the discounted array as a torch FloatTensor
         """
-
         running_sum = 0
         discounts = cuda_if(torch.zeros(len(array)))
         for i in reversed(range(len(array))):
@@ -296,4 +293,5 @@ class Updater():
         file_name - string name of the file to save the state_dict to
         """
         torch.save(self.net.state_dict(), net_file_name)
-        torch.save(self.optim.state_dict(), optim_file_name)
+        if optim_file_name is not None:
+            torch.save(self.optim.state_dict(), optim_file_name)
