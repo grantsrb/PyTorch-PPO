@@ -2,7 +2,6 @@ import gym
 import torch
 import numpy as np
 from torch.autograd import Variable
-import matplotlib.pyplot as plt
 try:
     import gym_snake
 except ImportError:
@@ -13,10 +12,10 @@ class Collector():
     This class handles the collection of data by interacting with the environments.
     """
 
-    def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=4, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, bootstrap_next=False):
+    def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=4, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, use_cuda=False):
 
+        self.use_cuda = use_cuda
         self.preprocess = preprocessor
-        self.bootstrap_next = bootstrap_next
         self.env_type = env_type
         self.env = gym.make(env_type)
         self.env.grid_size = grid_size
@@ -43,8 +42,11 @@ class Collector():
         self.alelives = 12
         self.last_reset = 0
 
+    def load_net(self, net):
+        self.net = self.cuda_if(net)
+
     def cuda_if(self, obj):
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and self.use_cuda:
             obj = obj.cuda()
         return obj
 
@@ -113,13 +115,10 @@ class Collector():
             next_states.append(state)
 
         self.state_bookmark = state
-        if not done:
-            if self.bootstrap_next:
-                tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
-                val, pi = self.net.forward(Variable(tstate))
-                rewards[-1] = rewards[-1] + self.gamma*val.squeeze().data[0] # Bootstrapped value
-            else: 
-                rewards[-1] = rewards[-1] + val.squeeze().data[0] # Bootstrapped value
+        if not dones[-1]:
+            tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
+            val, pi = self.net.forward(Variable(tstate))
+            rewards[-1] = rewards[-1] + self.gamma*val.squeeze().data[0] # Bootstrapped value
             dones[-1] = True
 
         return states, next_states, rewards, dones, actions
