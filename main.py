@@ -4,7 +4,6 @@ from collector import Collector
 from updater import Updater
 import torch
 from torch.autograd import Variable
-import torch.optim as optim
 import numpy as np
 import gc
 import resource
@@ -57,7 +56,8 @@ if __name__ == '__main__':
     norm_batch_advs = False
     use_bnorm = False
     eval_vals = True
-    model_type = 'conv'
+    model_type = 'conv' # Options include: 'conv', 'dense', 'a3c'
+    optim_type = 'rmsprop' # Options include: 'adam', 'rmsprop'
     resume = False
     render = False
 
@@ -91,6 +91,7 @@ if __name__ == '__main__':
             if "n_frame_stack=" in str_arg: n_frame_stack= int(str_arg[len('n_frame_stack='):])
             if "env_type=" in str_arg: env_type = str_arg[len('env_type='):]
             if "model_type=" in str_arg: model_type = str_arg[len('model_type='):]
+            if "optim_type=" in str_arg: optim_type = str_arg[len('optim_type='):]
 
             if "exp_name=" in str_arg: exp_name= str_arg[len('exp_name='):]
             elif "resume=False" in str_arg: resume = False
@@ -124,6 +125,7 @@ if __name__ == '__main__':
     hyperdict["exp_name"] = exp_name
     hyperdict["env_type"] = env_type
     hyperdict["model_type"] = model_type
+    hyperdict["optim_type"] = optim_type
     hyperdict["gamma"] = gamma
     hyperdict["lambda_"] = lambda_
     hyperdict["n_rollouts"] = n_rollouts
@@ -216,7 +218,7 @@ if __name__ == '__main__':
         data_producers.append(data_producer)
         data_producer.start()
 
-    updater = Updater(target_net, lr, entr_coef=entr_coef, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, clip_vals=clip_vals, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals, use_nstep_rets=use_nstep_rets)
+    updater = Updater(target_net, lr, entr_coef=entr_coef, value_const=val_const, gamma=gamma, lambda_=lambda_, max_norm=max_norm, batch_size=batch_size, n_epochs=n_epochs, cache_size=cache_size, epsilon=epsilon, clip_vals=clip_vals, norm_advs=norm_advs, norm_batch_advs=norm_batch_advs, eval_vals=eval_vals, use_nstep_rets=use_nstep_rets, optim_type=optim_type)
     if resume:
         updater.optim.load_state_dict(torch.load(optim_save_file))
 
@@ -249,9 +251,7 @@ if __name__ == '__main__':
             updater.epsilon = (1-T/(max_tsteps))*epsilon_diff + epsilon_low
         if decay_lr:
             new_lr = (1-T/(max_tsteps))*lr_diff + lr_low
-            state_dict = updater.optim.state_dict()
-            updater.optim = optim.Adam(updater.net.parameters(), lr=new_lr)
-            updater.optim.load_state_dict(state_dict)
+            updater.new_lr(new_lr)
         if decay_entr:
             updater.entr_coef = entr_coef_diff*(1-T/(max_tsteps))+entr_coef_low
 
