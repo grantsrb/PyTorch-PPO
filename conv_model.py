@@ -33,35 +33,35 @@ class Model(nn.Module):
         ksize=3; stride=1; padding=1; out_depth=16
         self.convs.append(self.conv_block(input_space[-3],out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
-                                            bnorm=self.bnorm, activation='relu'))
+                                            bnorm=self.bnorm))
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
 
         ksize=3; stride=2; padding=1; in_depth=out_depth
         out_depth=24
         self.convs.append(self.conv_block(in_depth,out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
-                                            bnorm=self.bnorm, activation='relu'))
+                                            bnorm=self.bnorm))
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
 
         ksize=3; stride=2; padding=1; in_depth=out_depth
         out_depth=32
         self.convs.append(self.conv_block(in_depth,out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
-                                            bnorm=self.bnorm, activation='relu'))
+                                            bnorm=self.bnorm))
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
 
         ksize=3; stride=2; padding=1; in_depth=out_depth
         out_depth=32
         self.convs.append(self.conv_block(in_depth,out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
-                                            bnorm=self.bnorm, activation='relu'))
+                                            bnorm=self.bnorm))
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
 
         ksize=3; stride=2; padding=1; in_depth=out_depth
         out_depth=64
         self.convs.append(self.conv_block(in_depth,out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
-                                            bnorm=self.bnorm, activation='relu'))
+                                            bnorm=self.bnorm))
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
         
         self.features = nn.Sequential(*self.convs)
@@ -111,7 +111,7 @@ class Model(nn.Module):
         value = self.value(state_emb)
         return value, pi
 
-    def conv_block(self, chan_in, chan_out, ksize=3, stride=1, padding=1, activation="relu", max_pool=False, bnorm=True):
+    def conv_block(self, chan_in, chan_out, ksize=3, stride=1, padding=1, activation="lerelu", max_pool=False, bnorm=True):
         block = []
         block.append(nn.Conv2d(chan_in, chan_out, ksize, stride=stride, padding=padding))
         if activation is not None: activation=activation.lower()
@@ -121,8 +121,8 @@ class Model(nn.Module):
             block.append(nn.ELU())
         elif "tanh" in activation:
             block.append(nn.Tanh())
-        elif "elu" in activation:
-            block.append(nn.ELU())
+        elif "lerelu" in activation:
+            block.append(nn.LeakyReLU(negative_slope=.05))
         elif "selu" in activation:
             block.append(nn.SELU())
         if max_pool:
@@ -141,8 +141,8 @@ class Model(nn.Module):
             block.append(nn.ELU())
         elif "tanh" in activation:
             block.append(nn.Tanh())
-        elif "elu" in activation:
-            block.append(nn.ELU())
+        elif "lerelu" in activation:
+            block.append(nn.LeakyReLU())
         elif "selu" in activation:
             block.append(nn.SELU())
         if bnorm:
