@@ -19,10 +19,9 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True): 
+    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True, optim_type='rmsprop'): 
         self.net = net 
         self.old_net = copy.deepcopy(self.net) 
-        self.optim = optim.Adam(self.net.parameters(), lr=lr) 
         self.entr_coef = entr_coef
         self.val_const = value_const
         self.gamma = gamma
@@ -38,6 +37,8 @@ class Updater():
         self.norm_batch_advs = norm_batch_advs
         self.eval_vals = eval_vals
         self.use_nstep_rets = use_nstep_rets
+        self.optim_type = optim_type
+        self.new_optim(lr)    
 
         # Data caches
         self.states = []
@@ -53,10 +54,6 @@ class Updater():
         self.min_adv = 1
         self.max_minsurr = -1e10
         self.min_minsurr = 1e10
-
-        if torch.cuda.is_available():
-            torch.FloatTensor = torch.cuda.FloatTensor
-            torch.LongTensor = torch.cuda.LongTensor
 
     def update_model(self, states, next_states, rewards, dones, actions):
         """
@@ -90,11 +87,11 @@ class Updater():
         else:
             self.states, self.next_states, self.rewards, self.actions, self.dones = states, next_states, rewards, actions, dones
 
-        states = torch.FloatTensor(np.asarray(self.states.copy()))
-        next_states = torch.FloatTensor(np.asarray(self.next_states.copy()))
-        actions = torch.LongTensor(self.actions)
-        rewards = torch.FloatTensor(self.rewards)
-        dones = torch.FloatTensor(self.dones)
+        states = cuda_if(torch.FloatTensor(np.asarray(self.states.copy())))
+        next_states = cuda_if(torch.FloatTensor(np.asarray(self.next_states.copy())))
+        actions = cuda_if(torch.LongTensor(self.actions))
+        rewards = cuda_if(torch.FloatTensor(self.rewards))
+        dones = cuda_if(torch.FloatTensor(self.dones))
         advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones)
 
         avg_epoch_loss,avg_epoch_policy_loss,avg_epoch_val_loss,avg_epoch_entropy = 0,0,0,0
@@ -106,7 +103,7 @@ class Updater():
         for epoch in range(self.n_epochs):
 
             loss, epoch_loss, epoch_policy_loss, epoch_val_loss, epoch_entropy = 0,0,0,0,0
-            indices = torch.randperm(len(states)).long()
+            indices = cuda_if(torch.randperm(len(states)).long())
 
             for i in range(len(indices)//self.batch_size):
 
@@ -167,13 +164,13 @@ class Updater():
         # Get new Outputs
         vals, raw_pis = self.net.forward(Variable(states))
         probs = F.softmax(raw_pis, dim=-1)
-        pis = probs[torch.arange(0,len(probs)).long(), actions]
+        pis = probs[cuda_if(torch.arange(0,len(probs)).long()), actions]
 
         # Get old Outputs
         old_vals, old_raw_pis = self.old_net.forward(Variable(states))
         old_vals.detach(), old_raw_pis.detach()
         old_probs = F.softmax(old_raw_pis, dim=-1)
-        old_pis = old_probs[torch.arange(0,len(old_probs)).long(), actions]
+        old_pis = old_probs[cuda_if(torch.arange(0,len(old_probs))).long(), actions]
 
         # Policy Loss
         if self.norm_batch_advs:
@@ -295,3 +292,16 @@ class Updater():
         torch.save(self.net.state_dict(), net_file_name)
         if optim_file_name is not None:
             torch.save(self.optim.state_dict(), optim_file_name)
+    
+    def new_lr(self, new_lr):
+        state_dict = self.optim.state_dict()
+        self.new_optim(new_lr)
+        self.optim.load_state_dict(state_dict)
+
+    def new_optim(self, lr):
+        if self.optim_type == 'rmsprop':
+            self.optim = optim.RMSprop(self.net.parameters(), lr=lr) 
+        elif self.optim_type == 'adam':
+            self.optim = optim.Adam(self.net.parameters(), lr=lr) 
+        else:
+            self.optim = optim.RMSprop(self.net.parameters(), lr=lr) 
