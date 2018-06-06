@@ -273,7 +273,7 @@ if __name__ == '__main__':
         # Print Epoch Data
         updater.print_statistics()
         avg_action = np.mean(ep_data[4])
-        print("Grad Norm:", updater.norm, "– Avg Action:", avg_action, "– Best AvgRew:", best_avg_rew)
+        print("Grad Norm:", float(updater.norm), "– Avg Action:", avg_action, "– Best AvgRew:", best_avg_rew)
         print("Avg Rew:", avg_reward, "– High:", past_rews_sort[-1], "– Low:", past_rews_sort[0], end='\n')
         updater.log_statistics(log, T, avg_reward, avg_action)
         updater.info['AvgRew'] = avg_reward

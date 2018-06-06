@@ -122,10 +122,10 @@ class Updater():
                 self.norm = nn.utils.clip_grad_norm(self.net.parameters(), self.max_norm)
                 self.optim.step()
                 self.optim.zero_grad()
-                epoch_loss += loss.data[0]
-                epoch_policy_loss += policy_loss.data[0]
-                epoch_val_loss += val_loss.data[0]
-                epoch_entropy += entropy.data[0]
+                epoch_loss += float(loss.data)
+                epoch_policy_loss += float(policy_loss.data)
+                epoch_val_loss += float(val_loss.data)
+                epoch_entropy += float(entropy.data)
                 print("Batch:", epoch*(len(indices)//self.batch_size)+i,\
                                         "/", self.n_epochs*(len(indices)//self.batch_size),\
                                         end="         \r")
@@ -135,14 +135,14 @@ class Updater():
             avg_epoch_val_loss += epoch_val_loss/self.n_epochs
             avg_epoch_entropy += epoch_entropy/self.n_epochs
 
-        self.info = {"Loss":avg_epoch_loss, 
-                    "PiLoss":avg_epoch_policy_loss, 
-                    "VLoss":avg_epoch_val_loss, 
-                    "S":avg_epoch_entropy, 
-                    "MaxAdv":self.max_adv,
-                    "MinAdv":self.min_adv, 
-                    "MinSurr":self.min_minsurr, 
-                    "MaxSurr":self.max_minsurr} 
+        self.info = {"Loss":float(avg_epoch_loss), 
+                    "PiLoss":float(avg_epoch_policy_loss), 
+                    "VLoss":float(avg_epoch_val_loss), 
+                    "S":float(avg_epoch_entropy), 
+                    "MaxAdv":float(self.max_adv),
+                    "MinAdv":float(self.min_adv), 
+                    "MinSurr":float(self.min_minsurr), 
+                    "MaxSurr":float(self.max_minsurr)} 
         self.max_adv, self.min_adv, = -1, 1
         self.max_minsurr, self.min_minsurr = -1e10, 1e10
         del states, actions, advantages, returns
