@@ -23,9 +23,9 @@ class Collector():
         self.env.unit_size = unit_size
         self.action_space = self.env.action_space.n
         if env_type == 'Pong-v0':
-            self.action_space = 2
+            self.action_space = 3
         elif 'Breakout' in env_type:
-            self.action_space = 2
+            self.action_space = 4
 
         observation = self.env.reset()
         prepped_obs = self.preprocess(observation, env_type)
@@ -87,24 +87,16 @@ class Collector():
 
         state = self.state_bookmark
         states, next_states, rewards, dones, actions = [], [], [], [], []
-        breakout = 'Breakout' in self.env_type
         for i in range(self.n_tsteps):
             tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
             val, pi = self.net.forward(Variable(tstate))
             action = self.get_action(self.cpu_if(pi.data))
 
-            obs, reward, done, info = self.env.step(action+2*(self.env_type=='Pong-v0')+2*breakout)
+            obs, reward, done, info = self.env.step(action+(self.env_type=='Pong-v0'))
             self.episode_reward += reward
 
             reset = done # Used to prevent reset in pong environment before actual done signal
             if 'Pong-v0' == self.env_type and reward != 0: done = True
-            if breakout:
-                self.last_reset += 1
-                if self.alelives > 2*info['ale.lives'] or self.last_reset > 100:
-                    obs, reward, new_done, info = self.env.step(1) # Fire the ball
-                    if self.alelives > 2*info['ale.lives']: self.alelives -= 1
-                    self.last_reset = 0
-                    done = done or new_done
             if done:
                 self.reward_q.put(.99*self.reward_q.get() + .01*self.episode_reward)
                 self.episode_reward = 0
@@ -118,7 +110,7 @@ class Collector():
         if not dones[-1]:
             tstate = self.cuda_if(torch.FloatTensor(state.copy()).unsqueeze(0))
             val, pi = self.net.forward(Variable(tstate))
-            rewards[-1] = rewards[-1] + self.gamma*val.squeeze().data[0] # Bootstrapped value
+            rewards[-1] = rewards[-1] + self.gamma*float(val.squeeze().data) # Bootstrapped value
             dones[-1] = True
 
         return states, next_states, rewards, dones, actions
