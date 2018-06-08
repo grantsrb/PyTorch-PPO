@@ -51,7 +51,7 @@ class Model(nn.Module):
         shape = self.get_new_shape(shape, out_depth, ksize, padding=padding, stride=stride)
 
         ksize=3; stride=2; padding=1; in_depth=out_depth
-        out_depth=32
+        out_depth=48
         self.convs.append(self.conv_block(in_depth,out_depth,ksize=ksize,
                                             stride=stride, padding=padding, 
                                             bnorm=self.bnorm))
@@ -184,17 +184,17 @@ class Model(nn.Module):
 
     @staticmethod
     def preprocess(pic, env_type='snake-v0'):
-        if env_type == "Pong-v0":
+        if "Pong" in env_type:
             pic = pic[35:195] # crop
             pic = pic[::2,::2,0] # downsample by factor of 2
             pic[pic == 144] = 0 # erase background (background type 1)
             pic[pic == 109] = 0 # erase background (background type 2)
             pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
-        elif env_type == 'Breakout-v0':
-            pic = pic[35:195] # crop
+        elif 'Breakout' in env_type:
+            pic = pic[35:195,8:-8] # crop
+            pic = pic[::2,::2,0] # downsample by factor of 2
             pic = rgb2grey(pic)
-            pic = resize(pic, (52,52), mode='constant')
-            pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
+            #pic[pic != 0] = 1
         elif env_type == "snake-v0":
             new_pic = np.zeros(pic.shape[:2],dtype=np.float32)
             new_pic[:,:][pic[:,:,0]==1] = 1
