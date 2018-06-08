@@ -14,12 +14,22 @@ from hyperparameters import HyperParams
 import dense_model
 import conv_model
 import a3c_model
-import queue
+from collections import deque
 
 def cuda_if(obj):
     if torch.cuda.is_available():
         obj = obj.cuda()
     return obj
+
+def find_maxmin(deq):
+    max_val, min_val = deq[0],deq[0]
+    for i in range(len(deq)):
+        if deq[i] > max_val:
+            max_val = deq[i]
+        if deq[i] < min_val:
+            min_val = deq[i]
+    return max_val, min_val
+
 
 if __name__ == '__main__':
     mp.set_start_method('forkserver')
@@ -102,12 +112,11 @@ if __name__ == '__main__':
     entr_coef_diff = hyps['entr_coef'] - hyps['entr_coef_low']
     epsilon_diff = hyps['epsilon'] - hyps['epsilon_low']
     lr_diff = hyps['lr'] - hyps['lr_low']
+    gamma_diff = hyps['gamma_high'] - hyps['gamma']
 
     logger = Logger()
     idx_perm = np.random.permutation(len(gate_qs)).astype(np.int)
-    past_rews = queue.Queue(hyps['n_past_rews'])
-    for i in range(hyps['n_past_rews']):
-        past_rews.put(0)
+    past_rews = deque([0]*hyps['n_past_rews'])
     last_avg_rew = 0
     best_rew_diff = 0
     best_avg_rew = 0
@@ -134,6 +143,8 @@ if __name__ == '__main__':
             updater.new_lr(new_lr)
         if hyps['decay_entr']:
             updater.entr_coef = entr_coef_diff*(1-T/(hyps['max_tsteps']))+hyps['entr_coef_low']
+        if hyps['incr_gamma']:
+            updater.gamma = gamma_diff*(T/(hyps['max_tsteps']))+hyps['gamma']
 
         # Calculate the Loss and Update nets
         updater.update_model(*ep_data)
@@ -148,9 +159,9 @@ if __name__ == '__main__':
         # Reward Stats
         avg_reward = reward_q.get()
         reward_q.put(avg_reward)
-        past_rews.get()
-        past_rews.put(avg_reward)
-        past_rews_sort = sorted(past_rews)
+        past_rews.popleft()
+        past_rews.append(avg_reward)
+        max_rew, min_rew = find_maxmin(past_rews)
         avg_rew_diff = avg_reward - last_avg_rew
         last_avg_rew = avg_reward
 
@@ -168,7 +179,7 @@ if __name__ == '__main__':
         updater.print_statistics()
         avg_action = np.mean(ep_data[4])
         print("Grad Norm:", float(updater.norm), "– Avg Action:", avg_action, "– Best AvgRew:", best_avg_rew, "– Best Diff:", best_rew_diff)
-        print("Avg Rew:", avg_reward, "– High:", past_rews_sort[-1], "– Low:", past_rews_sort[0], end='\n')
+        print("Avg Rew:", avg_reward, "– High:", max_rew, "– Low:", min_rew, end='\n')
         updater.log_statistics(log, T, avg_reward, avg_action)
         updater.info['AvgRew'] = avg_reward
         logger.append(updater.info, x_val=T)
