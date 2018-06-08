@@ -12,7 +12,7 @@ class Collector():
     This class handles the collection of data by interacting with the environments.
     """
 
-    def __init__(self, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=4, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, use_cuda=False):
+    def __init__(self, gate_q, reward_q, grid_size=[15,15], n_foods=1, unit_size=10, n_frame_stack=4, net=None, n_tsteps=15, gamma=0.99, env_type='snake-v0', preprocessor= lambda x: x, use_cuda=False):
 
         self.use_cuda = use_cuda
         self.preprocess = preprocessor
@@ -37,6 +37,7 @@ class Collector():
         self.gamma = gamma
         self.net = net
         self.n_tsteps = n_tsteps
+        self.gate_q = gate_q
         self.reward_q = reward_q
         self.episode_reward = 0
         self.alelives = 12
@@ -67,6 +68,7 @@ class Collector():
         self.net.train(mode=False)
         self.net = self.cuda_if(self.net)
         while True:
+            self.gate_q.get()
             data = self.rollout()
             data_q.put(data)
 
