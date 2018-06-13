@@ -40,14 +40,6 @@ class Updater():
         self.optim_type = optim_type
         self.new_optim(lr)    
 
-        # Data caches
-        self.states = []
-        self.next_states = []
-        self.rewards = []
-        self.actions = []
-        self.dones = []
-        self.advantages = []
-
         # Tracking variables
         self.info = {}
         self.max_adv = -1
@@ -55,47 +47,43 @@ class Updater():
         self.max_minsurr = -1e10
         self.min_minsurr = 1e10
 
-    def update_model(self, states, next_states, rewards, dones, actions):
+    def update_model(self, shared_data):
         """
         This function accepts the data collected from a rollout and performs PPO update iterations
         on the neural net.
 
-        states - python list of the environment states from the rollouts
-                shape = (n_states, *state_shape)
-        next_states - python list of the next environment states from the rollouts
-                shape = (n_states, *state_shape)
-        rewards - python list of rewards from the rollouts
-                shape = (n_states,)
-        dones - python list of done signals from the rollouts
-                dones = (n_states,)
-        actions - python integer list denoting the actual action
-                indexes taken in the rollout
+        datas - dict of torch tensors with shared memory to collect data. Each 
+                tensor contains indices from idx*n_tsteps to (idx+1)*n_tsteps
+                Keys (assume string keys):
+                    "states" - MDP states at each timestep t
+                            type: FloatTensor
+                            shape: (n_states, *state_shape)
+                    "next_states" - MDP states at timestep t+1
+                            type: FloatTensor
+                            shape: (n_states, *state_shape)
+                    "rewards" - Collects float rewards collected at each timestep t
+                            type: FloatTensor
+                            shape: (n_states,)
+                    "dones" - Collects the dones collected at each timestep t
+                            type: FloatTensor
+                            shape: (n_states,)
+                    "actions" - Collects actions performed at each timestep t
+                            type: LongTensor
+                            shape: (n_states,)
         """
 
-        if self.cache_size is not None and self.cache_size > 0:
-            print("Using Cache")
-            self.states,self.next_states,self.rewards,self.actions,self.dones =self.states+states,\
-                                                                self.next_states+next_states,\
-                                                                self.rewards+rewards,\
-                                                                self.actions+actions,\
-                                                                self.dones+dones
-            self.states = self.states[-self.cache_size:]
-            self.next_states = self.next_states[-self.cache_size:]
-            self.rewards = self.rewards[-self.cache_size:]
-            self.actions = self.actions[-self.cache_size:]
-            self.dones = self.dones[-self.cache_size:]
-        else:
-            self.states, self.next_states, self.rewards, self.actions, self.dones = states, next_states, rewards, actions, dones
-
-        states = cuda_if(torch.FloatTensor(np.asarray(self.states.copy())))
-        next_states = cuda_if(torch.FloatTensor(np.asarray(self.next_states.copy())))
-        actions = cuda_if(torch.LongTensor(self.actions))
-        rewards = cuda_if(torch.FloatTensor(self.rewards))
-        dones = cuda_if(torch.FloatTensor(self.dones))
+        states = shared_data['states']
+        next_states = shared_data['next_states']
+        actions = shared_data['actions']
+        rewards = shared_data['rewards']
+        dones = shared_data['dones']
         advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones)
+        if self.norm_advs:
+            advantages = (advantages - advantages.mean())/(advantages.std()+1e-6)
 
         avg_epoch_loss,avg_epoch_policy_loss,avg_epoch_val_loss,avg_epoch_entropy = 0,0,0,0
         self.net.train(mode=True)
+        self.net.req_grads(True)
         self.old_net.load_state_dict(self.net.state_dict())
         self.old_net.train(mode=True)
         self.old_net.req_grads(False)
@@ -126,9 +114,6 @@ class Updater():
                 epoch_policy_loss += float(policy_loss.data)
                 epoch_val_loss += float(val_loss.data)
                 epoch_entropy += float(entropy.data)
-                print("Batch:", epoch*(len(indices)//self.batch_size)+i,\
-                                        "/", self.n_epochs*(len(indices)//self.batch_size),\
-                                        end="         \r")
 
             avg_epoch_loss += epoch_loss/self.n_epochs
             avg_epoch_policy_loss += epoch_policy_loss/self.n_epochs
@@ -222,20 +207,17 @@ class Updater():
         self.net.req_grads(False)
         vals, raw_pis = self.net.forward(Variable(states))
         next_vals, _ = self.net.forward(Variable(next_states))
-        del next_states
         self.net.train(mode=True)
         self.net.req_grads(True)
 
+        # Make Advantages
         advantages = self.gae(rewards.squeeze(), vals.data.squeeze(), next_vals.data.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
 
+        # Make Returns
         if self.use_nstep_rets: 
             returns = advantages + vals.data.squeeze()
         else: 
             returns = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
-        del rewards, dones
-        if self.norm_advs:
-            advantages = (advantages-advantages.mean())
-            advantages = advantages/(advantages.std()+1e-7)
 
         return advantages, returns
 

@@ -1,4 +1,8 @@
 import sys
+import preprocessing
+import conv_model
+import dense_model
+import a3c_model
 
 class HyperParams:
     def __init__(self):
@@ -59,9 +63,32 @@ class HyperParams:
                     }
         self.hyps = self.read_command_line(hyp_dict)
 
+        # Hyperparameter Manipulations
         self.hyps['grid_size'] = [self.hyps['grid_size'],self.hyps['grid_size']]
         if self.hyps['batch_size'] > self.hyps['n_rollouts']*self.hyps['n_tsteps']:
             self.hyps['batch_size'] = self.hyps['n_rollouts']*self.hyps['n_tsteps']
+
+        # Model Type
+        model_type = self.hyps['model_type'].lower()
+        if "conv" == model_type:
+            self.hyps['model'] = conv_model.Model
+        elif "a3c" == model_type:
+            self.hyps['model'] = a3c.Model
+        elif "dense" == model_type:
+            self.hyps['model'] = dense_model.Model
+        else:
+            self.hyps['model'] = conv_model.Model
+
+        # Preprocessor Type
+        env_type = self.hyps['env_type'].lower()
+        if "pong" in env_type:
+            self.hyps['preprocess'] = preprocessing.pong_prep
+        elif "breakout" in env_type:
+            self.hyps['preprocess'] = preprocessing.breakout_prep
+        elif "snake" in env_type:
+            self.hyps['preprocess'] = preprocessing.snake_prep
+        else:
+            self.hyps['preprocess'] = preprocessing.atari_prep
 
     def read_command_line(self, hyps_dict):
         """

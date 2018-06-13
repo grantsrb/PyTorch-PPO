@@ -1,6 +1,7 @@
 import sys
+import gym
 from logger import Logger
-from collector import Collector
+from runner import Runner
 from updater import Updater
 import torch
 from torch.autograd import Variable
@@ -11,15 +12,8 @@ import torch.multiprocessing as mp
 import copy
 import time
 from hyperparameters import HyperParams
-import dense_model
-import conv_model
-import a3c_model
 from collections import deque
-
-def cuda_if(obj):
-    if torch.cuda.is_available():
-        obj = obj.cuda()
-    return obj
+from utils import cuda_if
 
 def find_maxmin(deq):
     max_val, min_val = deq[0],deq[0]
@@ -29,7 +23,6 @@ def find_maxmin(deq):
         if deq[i] < min_val:
             min_val = deq[i]
     return max_val, min_val
-
 
 if __name__ == '__main__':
     mp.set_start_method('forkserver')
@@ -43,15 +36,7 @@ if __name__ == '__main__':
     for k, v in sorted(items):
         print(k+":", v)
 
-    # Set Variables
-    if 'dense' in hyps['model_type']:
-        Model = dense_model.Model
-    elif 'conv' in hyps['model_type']:
-        Model = conv_model.Model
-    elif 'a3c' in hyps['model_type']:
-        Model = a3c_model.Model
-    else:
-        Model = dense_model.Model
+    # Make Save Files
     net_save_file = hyps['exp_name']+"_net.p"
     best_net_file = hyps['exp_name']+"_best.p"
     best_by_diff_file = hyps['exp_name']+"_bestdiff.p"
@@ -62,60 +47,78 @@ if __name__ == '__main__':
     for k, v in sorted(items):
         log.write(k+":"+str(v)+"\n")
 
-    # Make Collectors
-    data_q = mp.Queue(hyps['n_envs'])
+    # Miscellaneous Variable Prep
+    logger = Logger()
+    shared_len = hyps['n_tsteps']*hyps['n_rollouts']
+    env = gym.make(hyps['env_type'])
+    obs = env.reset()
+    prepped = hyps['preprocess'](obs)
+    hyps['state_shape'] = [hyps['n_frame_stack']] + [*prepped.shape[1:]]
+    if hyps['env_type'] == "Pong-v0":
+        action_size = 3
+    else:
+        action_size = env.action_space.n*(hyps['env_type']!="Pong-v0")
+    hyps['action_shift'] = (4-action_size)*(hyps['env_type']=="Pong-v0") 
+    print("Obs Shape:,",obs.shape)
+    print("Prep Shape:,",prepped.shape)
+    print("State Shape:,",hyps['state_shape'])
+    print("Num Samples Per Update:", shared_len)
+    print("Samples Wasted in Update:", shared_len % hyps['batch_size'])
+    del env
+
+    # Prepare Shared Variables
+    shared_data = {'states': cuda_if(torch.zeros(shared_len, *hyps['state_shape']).share_memory_()),
+            'next_states': cuda_if(torch.zeros(shared_len, *hyps['state_shape']).share_memory_()),
+            'rewards': cuda_if(torch.zeros(shared_len).share_memory_()),
+            'actions': torch.zeros(shared_len).long().share_memory_(),
+            'dones': cuda_if(torch.zeros(shared_len).share_memory_())}
+    n_rollouts = hyps['n_rollouts']
+    gate_q = mp.Queue(n_rollouts)
+    stop_q = mp.Queue(n_rollouts)
     reward_q = mp.Queue(1)
     reward_q.put(-1)
-    gate_qs = []
-    collectors = []
+
+    # Make Runners
+    runners = []
     for i in range(hyps['n_envs']):
-        gate_q = mp.Queue(3) # Used to control rollout collections
-        collector = Collector(gate_q, reward_q, grid_size=hyps['grid_size'], n_foods=hyps['n_foods'], unit_size=hyps['unit_size'], n_frame_stack=hyps['n_frame_stack'], net=None, n_tsteps=hyps['n_tsteps'], gamma=hyps['gamma'], env_type=hyps['env_type'], preprocessor=Model.preprocess, use_cuda=hyps['collector_cuda'])
-        collectors.append(collector)
-        gate_qs.append(gate_q)
-    for g in range(hyps['n_rollouts']):
-        gate_qs[g%len(gate_qs)].put(True)
-    print("Obs Shape:,",collectors[0].obs_shape)
-    print("Prep Shape:,",collectors[0].prepped_shape)
-    print("State Shape:,",collectors[0].state_shape)
-    print("Num Samples Per Update:", hyps['n_rollouts']*hyps['n_tsteps'])
-    print("Samples Wasted in Update:", hyps['n_rollouts']*hyps['n_tsteps'] % hyps['batch_size'])
+        runner = Runner(shared_data, hyps, gate_q, stop_q, reward_q)
+        runners.append(runner)
 
     # Make Network
-    net = Model(collectors[0].state_shape, collectors[0].action_space, bnorm=hyps['use_bnorm'])
-    dummy = net.forward(Variable(torch.zeros(2,*collectors[0].state_shape)))
+    net = hyps['model'](hyps['state_shape'], action_size, bnorm=hyps['use_bnorm'])
     if hyps['resume']:
         net.load_state_dict(torch.load(net_save_file))
-    target_net = copy.deepcopy(net)
+    base_net = copy.deepcopy(net)
+    net = cuda_if(net)
     net.share_memory()
-    target_net = cuda_if(target_net)
+    base_net = cuda_if(base_net)
 
     # Start Data Collection
     print("Making New Processes")
-    data_producers = []
-    for i in range(len(collectors)):
-        collectors[i].load_net(net)
-        data_producer = mp.Process(target=collectors[i].produce_data, args=(data_q,))
-        data_producers.append(data_producer)
-        data_producer.start()
-        print(i, "/", len(collectors), end='\r')
+    procs = []
+    for i in range(len(runners)):
+        proc = mp.Process(target=runners[i].run, args=(net,))
+        procs.append(proc)
+        proc.start()
+        print(i, "/", len(runners), end='\r')
+    for i in range(n_rollouts):
+        gate_q.put(i)
 
     # Make Updater
-    updater = Updater(target_net, hyps['lr'], entr_coef=hyps['entr_coef'], value_const=hyps['val_const'], gamma=hyps['gamma'], lambda_=hyps['lambda_'], max_norm=hyps['max_norm'], batch_size=hyps['batch_size'], n_epochs=hyps['n_epochs'], cache_size=hyps['cache_size'], epsilon=hyps['epsilon'], clip_vals=hyps['clip_vals'], norm_advs=hyps['norm_advs'], norm_batch_advs=hyps['norm_batch_advs'], eval_vals=hyps['eval_vals'], use_nstep_rets=hyps['use_nstep_rets'], optim_type=hyps['optim_type'])
+    updater = Updater(base_net, hyps['lr'], entr_coef=hyps['entr_coef'], value_const=hyps['val_const'], gamma=hyps['gamma'], lambda_=hyps['lambda_'], max_norm=hyps['max_norm'], batch_size=hyps['batch_size'], n_epochs=hyps['n_epochs'], cache_size=hyps['cache_size'], epsilon=hyps['epsilon'], clip_vals=hyps['clip_vals'], norm_advs=hyps['norm_advs'], norm_batch_advs=hyps['norm_batch_advs'], eval_vals=hyps['eval_vals'], use_nstep_rets=hyps['use_nstep_rets'], optim_type=hyps['optim_type'])
     if hyps['resume']:
         updater.optim.load_state_dict(torch.load(optim_save_file))
     updater.optim.zero_grad()
     updater.net.train(mode=True)
     updater.net.req_grads(True)
 
-    # Decay Precursors
+    # Prepare Decay Precursors
     entr_coef_diff = hyps['entr_coef'] - hyps['entr_coef_low']
     epsilon_diff = hyps['epsilon'] - hyps['epsilon_low']
     lr_diff = hyps['lr'] - hyps['lr_low']
     gamma_diff = hyps['gamma_high'] - hyps['gamma']
 
-    logger = Logger()
-    idx_perm = np.random.permutation(len(gate_qs)).astype(np.int)
+    # Training Loop
     past_rews = deque([0]*hyps['n_past_rews'])
     last_avg_rew = 0
     best_rew_diff = 0
@@ -123,19 +126,23 @@ if __name__ == '__main__':
     epoch = 0
     T = 0
     while T < hyps['max_tsteps']:
-        print("Begin Epoch", epoch, "– T =", T)
         basetime = time.time()
         epoch += 1
 
         # Collect data
-        ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions = [], [], [], [], []
-        ep_data = [ep_states, ep_nexts, ep_rewards, ep_dones, ep_actions]
-        for i in range(hyps['n_rollouts']):
-            data = data_q.get()
-            for j in range(len(ep_data)):
-                ep_data[j] += data[j]
-            print("Data:", i, "/", hyps['n_rollouts'], end="      \r")
-        T += len(ep_data[0])
+        for i in range(n_rollouts):
+            stop_q.get()
+        T += shared_len
+
+        # Calculate the Loss and Update nets
+        updater.update_model(shared_data)
+        net.load_state_dict(updater.net.state_dict()) # update all collector nets
+        
+        # Resume Data Collection
+        for i in range(n_rollouts):
+            gate_q.put(i)
+
+        # Decay HyperParameters
         if hyps['decay_eps']:
             updater.epsilon = (1-T/(hyps['max_tsteps']))*epsilon_diff + hyps['epsilon_low']
         if hyps['decay_lr']:
@@ -145,16 +152,6 @@ if __name__ == '__main__':
             updater.entr_coef = entr_coef_diff*(1-T/(hyps['max_tsteps']))+hyps['entr_coef_low']
         if hyps['incr_gamma']:
             updater.gamma = gamma_diff*(T/(hyps['max_tsteps']))+hyps['gamma']
-
-        # Calculate the Loss and Update nets
-        updater.update_model(*ep_data)
-        net.load_state_dict(updater.net.state_dict()) # update all collector nets
-        
-        # Resume Data Collection
-        for g in range(hyps['n_rollouts']):
-            idx = idx_perm[g%len(gate_qs)]
-            gate_qs[idx].put(True)
-        idx_perm = np.random.permutation(len(gate_qs)).astype(np.int)
 
         # Reward Stats
         avg_reward = reward_q.get()
@@ -177,7 +174,8 @@ if __name__ == '__main__':
 
         # Print Epoch Data
         updater.print_statistics()
-        avg_action = np.mean(ep_data[4])
+        avg_action = shared_data['actions'].float().mean().item()
+        print("Epoch", epoch, "– T =", T)
         print("Grad Norm:", float(updater.norm), "– Avg Action:", avg_action, "– Best AvgRew:", best_avg_rew, "– Best Diff:", best_rew_diff)
         print("Avg Rew:", avg_reward, "– High:", max_rew, "– Low:", min_rew, end='\n')
         updater.log_statistics(log, T, avg_reward, avg_action)
@@ -192,5 +190,5 @@ if __name__ == '__main__':
 
     logger.make_plots(hyps['exp_name'])
     # Close processes
-    for dp in data_producers:
-        dp.terminate()
+    for p in procs:
+        p.terminate()
