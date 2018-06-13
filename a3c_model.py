@@ -3,8 +3,6 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from skimage.transform import resize
-from skimage.color import rgb2grey
 
 class Model(nn.Module):
     def __init__(self, input_space, output_space, emb_size=256, bnorm=False):
@@ -146,25 +144,4 @@ class Model(nn.Module):
         for param in self.parameters():
             if torch.sum(param.data != param.data) > 0:
                 print("NaNs in Grad!")
-
-    @staticmethod
-    def preprocess(pic, env_type='snake-v0'):
-        if env_type == "Pong-v0":
-            pic = pic[35:195] # crop
-            pic = pic[::2,::2,0] # downsample by factor of 2
-            pic = rgb2grey(pic)
-            pic = pic/255.
-        elif 'Breakout' in env_type:
-            pic = pic[35:] # crop
-            #pic = rgb2grey(pic)
-            pic = resize(pic, (52,52), mode='constant')
-            pic[pic != 0] = 1 # everything else (paddles, ball) just set to 1
-        elif env_type == "snake-v0":
-            new_pic = np.zeros(pic.shape[:2],dtype=np.float32)
-            new_pic[:,:][pic[:,:,0]==1] = 1
-            new_pic[:,:][pic[:,:,0]==255] = 1.5
-            new_pic[:,:][pic[:,:,1]==255] = 0
-            new_pic[:,:][pic[:,:,2]==255] = .33
-            pic = new_pic
-        return pic[None]
 
