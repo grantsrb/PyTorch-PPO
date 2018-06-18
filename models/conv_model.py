@@ -8,7 +8,7 @@ import numpy as np
 Simple, sequential convolutional net.
 '''
 
-class Model(nn.Module):
+class ConvModel(nn.Module):
 
     def cuda_if(self, tobj):
         if torch.cuda.is_available():
@@ -16,7 +16,7 @@ class Model(nn.Module):
         return tobj
 
     def __init__(self, input_space, output_space, emb_size=288, bnorm=False):
-        super(Model, self).__init__()
+        super(ConvModel, self).__init__()
 
         self.input_space = input_space
         self.output_space = output_space
@@ -69,8 +69,8 @@ class Model(nn.Module):
 
         # Policy
         self.emb_bnorm = nn.BatchNorm1d(self.emb_size)
-        self.pi = self.dense_block(self.emb_size, self.output_space, activation='none', bnorm=False)
-        self.value = self.dense_block(self.emb_size, 1, activation='none', bnorm=False)
+        self.pi = nn.Linear(self.emb_size, self.output_space)
+        self.value = nn.Sequential(nn.Linear(self.emb_size, self.emb_size), nn.ReLU(), nn.Linear(self.emb_size, 1))
 
     def get_new_shape(self, shape, depth, ksize, padding, stride):
         new_shape = [depth]

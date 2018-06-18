@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-class Model(nn.Module):
+class A3CModel(nn.Module):
     def __init__(self, input_space, output_space, emb_size=256, bnorm=False):
         super(Model, self).__init__()
 
