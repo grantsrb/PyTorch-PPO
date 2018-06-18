@@ -1,15 +1,14 @@
 import sys
 import preprocessing
-import conv_model
-import dense_model
-import a3c_model
+from models import ConvModel, FCModel, A3CModel
+import numpy as np
 
 class HyperParams:
     def __init__(self):
         
         hyp_dict = dict()
         hyp_dict['string_hyps'] = {
-                    "exp_name":"default",
+                    "exp_name":"brkoutparamsearch",
                     "model_type":"conv", # Options include 'dense', 'conv', 'a3c'
                     "env_type":"Pong-v0", 
                     "optim_type":'adam' # Options: rmsprop, adam
@@ -21,13 +20,10 @@ class HyperParams:
                     "n_tsteps": 128, # Maximum number of tsteps per rollout per perturbed copy
                     "n_envs": 11, # Number of parallel python processes
                     "n_frame_stack":2, # Number of frames to stack in MDP state
-                    "emb_size":200, # Size of hidden layer in "small" network
-                    "rand_seed":1,
-                    "n_rollouts":32,
+                    "n_rollouts": 16,
                     "grid_size": 15,
                     "unit_size": 4,
                     "n_foods": 2,
-                    "cache_size": 0,
                     "n_past_rews":25,
                     }
         hyp_dict['float_hyps'] = {
@@ -36,30 +32,25 @@ class HyperParams:
                     "lambda_":.95,
                     "gamma":.99,
                     "gamma_high":.995,
-                    "sigma":.05,
-                    "sigma_low":2e-7,
                     "val_const":.1,
                     "entr_coef":.01,
                     "entr_coef_low":.001,
                     "max_norm":.5,
-                    "epsilon": .2, # PPO update clipping constant
+                    "epsilon": .15, # PPO update clipping constant
                     "epsilon_low":.05,
                     }
         hyp_dict['bool_hyps'] = {
-                    "bnorm":False,
                     "resume":False,
                     "render": False,
                     "clip_vals": False,
-                    "decay_eps": True,
-                    "decay_lr": True,
-                    "decay_entr": True,
-                    "incr_gamma": True,
-                    "collector_cuda": True,
+                    "decay_eps": False,
+                    "decay_lr": False,
+                    "decay_entr": False,
+                    "incr_gamma": False,
                     "use_nstep_rets": False,
                     "norm_advs": False,
                     "norm_batch_advs": True,
                     "use_bnorm": False,
-                    "eval_vals": False,
                     }
         self.hyps = self.read_command_line(hyp_dict)
 
@@ -71,13 +62,13 @@ class HyperParams:
         # Model Type
         model_type = self.hyps['model_type'].lower()
         if "conv" == model_type:
-            self.hyps['model'] = conv_model.Model
+            self.hyps['model'] = ConvModel
         elif "a3c" == model_type:
-            self.hyps['model'] = a3c.Model
-        elif "dense" == model_type:
-            self.hyps['model'] = dense_model.Model
+            self.hyps['model'] = A3CModel
+        elif "fc" == model_type or "dense" == model_type:
+            self.hyps['model'] = FCModel
         else:
-            self.hyps['model'] = conv_model.Model
+            self.hyps['model'] = ConvModel
 
         # Preprocessor Type
         env_type = self.hyps['env_type'].lower()
@@ -123,3 +114,35 @@ class HyperParams:
                     int_hyps[sub_args[0]] = int(sub_args[1])
     
         return {**bool_hyps, **float_hyps, **int_hyps, **string_hyps}
+
+# Methods
+
+def hyper_search(hyps, hyp_ranges, keys, idx, trainer):
+    if idx >= len(keys):
+        if 'search_count' not in hyps:
+            hyps['search_count'] = 0
+            hyps['exp_name'] = hyps['exp_name']+"0"
+        l = len(str(hyps['search_count']))
+        hyps['search_count'] += 1
+        hyps['exp_name'] = hyps['exp_name'][:-l]+str(hyps['search_count'])
+        trainer.train(hyps)
+        return
+    else:
+        key = keys[idx]
+        for param in hyp_ranges[key]:
+            hyps[key] = param
+            hyper_search(hyps, hyp_ranges, keys, idx+1, trainer)
+
+def make_hyper_range(low, high, range_len, method="log"):
+    if method.lower() == "random":
+        param_vals = np.random.random(low, high+.001, size=range_len)
+    elif method.lower() == "uniform":
+        step = (high-low)/(range_len-1)
+        param_vals = np.arange(low, high+step, step=step)
+    else:
+        range_low = np.log(low)/np.log(10)
+        range_high = np.log(high)/np.log(10)
+        arange = np.arange(range_low, range_high, step=(range_high-range_low)/(range_len-1))
+        param_vals = 10**arange
+    param_vals = [float(param_val) for param_val in param_vals]
+    return param_vals
