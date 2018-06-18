@@ -18,7 +18,7 @@ For Pong, the reward metric was averaged over individual 1 point games rather th
 - python 3.5 or later
 - pip
 - gym
-- (gym-snake)[https://github.com/grantsrb/Gym-Snake]
+- [gym-snake](https://github.com/grantsrb/Gym-Snake)
 - numpy
 - matplotlib
 - pytorch 0.4.0
@@ -37,7 +37,7 @@ Hopefully you have already installed all the appropriate dependencies. See the s
 
 To run a session on gym's Pong-v0 use the command:
 
-    `$ python main.py env_type=Pong-v0`
+    $ python main.py env_type=Pong-v0
 
 This will run a training session with the hyperparameters listed in the `hyperparams.py` file.
 
@@ -46,7 +46,7 @@ After training your policy, you can watch the policy run in the environment usin
 
 Here's an example:
 
-    `$ python watch_model.py save_file=default_net.p env_type=Pong-v0 model_type=conv`
+    $ python watch_model.py save_file=default_net.p env_type=Pong-v0 model_type=conv
 
 The order of the command line arguments does not matter.
 
