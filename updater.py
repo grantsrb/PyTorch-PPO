@@ -19,7 +19,7 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, cache_size=0, epsilon=.2, fresh_advs=False, clip_vals=False, norm_advs=True, norm_batch_advs=False, eval_vals=True, use_nstep_rets=True, optim_type='rmsprop'): 
+    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, epsilon=.2, clip_vals=False, norm_advs=True, norm_batch_advs=False, use_nstep_rets=True, optim_type='rmsprop'): 
         self.net = net 
         self.old_net = copy.deepcopy(self.net) 
         self.entr_coef = entr_coef
@@ -29,16 +29,13 @@ class Updater():
         self.max_norm = max_norm
         self.n_epochs = n_epochs
         self.batch_size = batch_size
-        self.cache_size = cache_size
         self.epsilon = epsilon
-        self.fresh_advs = fresh_advs
         self.clip_vals = clip_vals
         self.norm_advs = norm_advs
         self.norm_batch_advs = norm_batch_advs
-        self.eval_vals = eval_vals
         self.use_nstep_rets = use_nstep_rets
         self.optim_type = optim_type
-        self.new_optim(lr)    
+        self.optim = self.new_optim(lr)    
 
         # Tracking variables
         self.info = {}
@@ -130,7 +127,6 @@ class Updater():
                     "MaxSurr":float(self.max_minsurr)} 
         self.max_adv, self.min_adv, = -1, 1
         self.max_minsurr, self.min_minsurr = -1e10, 1e10
-        del states, actions, advantages, returns
 
     def ppo_losses(self, states, actions, advs, rets):
         """
@@ -203,11 +199,10 @@ class Updater():
             returns - torch FloatTensor of shape (L,)
         """
 
-        self.net.train(mode=not self.eval_vals)
+        self.net.train(mode=True)
         self.net.req_grads(False)
         vals, raw_pis = self.net.forward(Variable(states))
         next_vals, _ = self.net.forward(Variable(next_states))
-        self.net.train(mode=True)
         self.net.req_grads(True)
 
         # Make Advantages
@@ -259,10 +254,10 @@ class Updater():
         return discounts
 
     def print_statistics(self):
-        print("\n".join([key+": "+str(round(val,5)) for key,val in sorted(self.info.items())]))
+        print(" – ".join([key+": "+str(round(val,5)) for key,val in sorted(self.info.items())]))
 
-    def log_statistics(self, log, T, reward, avg_action):
-        log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward), "AvgAction: "+str(avg_action)]) + '\n')
+    def log_statistics(self, log, T, reward, avg_action, best_avg_rew):
+        log.write("Step:"+str(T)+" – "+" – ".join([key+": "+str(round(val,5)) if "ntropy" not in key else key+": "+str(val) for key,val in self.info.items()]+["EpRew: "+str(reward), "AvgAction: "+str(avg_action), "BestRew:"+str(best_avg_rew)]) + '\n')
         log.flush()
 
     def save_model(self, net_file_name, optim_file_name):
@@ -276,14 +271,15 @@ class Updater():
             torch.save(self.optim.state_dict(), optim_file_name)
     
     def new_lr(self, new_lr):
-        state_dict = self.optim.state_dict()
-        self.new_optim(new_lr)
-        self.optim.load_state_dict(state_dict)
+        new_optim = self.new_optim(new_lr)
+        new_optim.load_state_dict(self.optim.state_dict())
+        self.optim = new_optim
 
     def new_optim(self, lr):
         if self.optim_type == 'rmsprop':
-            self.optim = optim.RMSprop(self.net.parameters(), lr=lr) 
+            new_optim = optim.RMSprop(self.net.parameters(), lr=lr) 
         elif self.optim_type == 'adam':
-            self.optim = optim.Adam(self.net.parameters(), lr=lr) 
+            new_optim = optim.Adam(self.net.parameters(), lr=lr) 
         else:
-            self.optim = optim.RMSprop(self.net.parameters(), lr=lr) 
+            new_optim = optim.RMSprop(self.net.parameters(), lr=lr) 
+        return new_optim
