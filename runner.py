@@ -1,6 +1,9 @@
-from darcnite.imports import *
-from darcnite.utils import cuda_if
-from darcnite.runners.utils import next_state, sample_action
+from utils import next_state, sample_action, cuda_if
+from torch.autograd import Variable
+import torch
+import gym
+import torch.nn.functional as F
+from collections import deque
 
 class Runner:
     def __init__(self, datas, hyps, gate_q, stop_q, rew_q):
@@ -36,6 +39,7 @@ class Runner:
         self.gate_q = gate_q
         self.stop_q = stop_q
         self.rew_q = rew_q
+        self.obs_deque = deque(maxlen=hyps['n_frame_stack'])
 
     def run(self, net):
         """
@@ -50,12 +54,8 @@ class Runner:
         """
         self.net = net
         self.env = gym.make(self.hyps['env_type'])
-        obs = self.env.reset()
-        prep = self.hyps['preprocess'](obs)
-        self.hyps['state_shape'] = (self.hyps['n_frame_stack'], *prep.shape[1:])
-        state = next_state(self.env, prev_state=None, obs=obs, reset=True, 
-                                            preprocess=self.hyps['preprocess'], 
-                                            state_shape=self.hyps['state_shape'])
+        state = next_state(self.env, self.obs_deque, obs=None, reset=True, 
+                                            preprocess=self.hyps['preprocess']) 
         self.state_bookmark = state
         self.ep_rew = 0
         self.net.train(mode=False) # fixes batchnorm issues
@@ -106,7 +106,8 @@ class Runner:
             self.datas['rewards'][startx+i] = rew
             self.datas['dones'][startx+i] = float(done)
             self.datas['actions'][startx+i] = action
-            state = next_state(self.env, prev_state=state, obs=obs, reset=reset, preprocess=hyps['preprocess'], state_shape=hyps['state_shape'])
+            state = next_state(self.env, self.obs_deque, obs=obs, reset=reset, 
+                                            preprocess=hyps['preprocess'])
             if i > 0:
                 self.datas['next_states'][startx+i-1] = self.datas['states'][startx+i]
 
