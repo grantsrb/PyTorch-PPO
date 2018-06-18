@@ -50,6 +50,11 @@ Here's an example:
 
 The order of the command line arguments does not matter.
 
+### Automated Hyper Parameter Search
+Much of deep learning consists of tuning hyperparameters. It can be extremely addicting to change the hyperparameters by hand and then stare at the average reward over time as the algorithm trains. THIS IS A HOMERIAN SIREN! It is too easy to change hyperparameters before their results are fully known, it is difficult to keep track of what you did, and the time spent toying with hyperparameters could be spent reading papers, studying something useful, or calling your Mom and telling her you love her (you should do that more often btw. And your dad, too.)
+
+This repo contains an automated system under the name `hypersearch.py`. You can set the ranges of the hyperparameters you would like to search over manually, or use the untested and potentially buggy `make_hyper_range` function located in the `hyperparams.py` file. Then the `hyper_search` function also located in `hyperparams.py`. See `hypersearch.py` for an example.
+
 ### Command Line Arguments
 RL algorithms often need to be tuned well for them to work. There are tons of hyperparameters that can have large impacts on the training of the algorithm. In order to help with automated hyperparameter tuning, this project offers a number of optional command line arguments. Each is set using `<argument_name>=<argument>` with no spaces. For example, if you wanted to set the variable `n_envs` (the number of parallel environments) to 15, then you would use the following:
 
@@ -58,13 +63,13 @@ RL algorithms often need to be tuned well for them to work. There are tons of hy
 #### List of Command Line Arguments
 See `hyperparams.py` to access the default values.
 
-#### String Hyperparameters
+##### String Hyperparameters
 * `exp_name` - string of the name of the experiment. Determines the name that the PyTorch state dicts are saved to.
 * `model_type` - Denotes the model architecture to be used in training. Options include 'fc', 'conv', 'a3c'
 * `env_type` - string of the type of environment you would like to use PPO on. The environment must be an OpenAI gym environment.
 * `optim_type` - Denotes the type of optimizer to be used in training. Options: rmsprop, adam
 
-#### Integer Hyperparameters
+##### Integer Hyperparameters
 * `n_epochs` - PPO update epoch count
 * `batch_size` - PPO update batch size
 * `max_tsteps` - Maximum number of time steps to collect over course of training
@@ -74,7 +79,7 @@ See `hyperparams.py` to access the default values.
 * `n_rollouts` - integer number of rollouts to collect per gradient descent update. Whereas `n_envs` specifies the number of parallel processes, `n_rollouts` indicates how many rollouts should be performed in total amongst these processes. 
 * `n_past_rews` - number of past epochs to keep statistics from. Only affects logging and statistics printing, no effect on actual training.
 
-#### Float Hyperparameters
+##### Float Hyperparameters
 * `lr` - learning rate
 * `lr_low` - if `decay_lr` is set to true, this value denotes the lower limit of the `lr` decay.
 * `lambda_` - float value of the generalized advantage estimation moving average factor. Only applies if using GAE.
@@ -87,7 +92,7 @@ See `hyperparams.py` to access the default values.
 * `epsilon` -  PPO update clipping constant
 * `epsilon_low` - if `decay_eps` is set to true, this value denotes the lower limit of the `epsilon` decay.
 
-#### Boolean Hyperparameters
+##### Boolean Hyperparameters
 * `resume` - boolean denoting whether the training should be resumed from a previous point.
 * `render` - boolean denoting whether the gym environment should be rendered
 * `clip_vals` - if set to true, uses value clipping technique in ppo update
@@ -100,7 +105,7 @@ See `hyperparams.py` to access the default values.
 * `norm_batch_advs` - if set to true, normalizes advantages in each training batch. Will not be performed if `norm_advs` is set to true.
 * `use_bnorm` - uses batch normalization in model if set to true
 
-#### Specific to snake-v0
+##### Specific to snake-v0
 * `grid_size` - integer denoting square dimensions for size of grid for snake.
 * `n_foods` - integer denoting number of food pieces to appear on grid
 * `unit_size` - integer denoting number of pixels per unit in grid.
