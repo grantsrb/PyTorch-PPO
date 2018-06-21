@@ -187,9 +187,13 @@ class PPO:
             gc.collect()
             max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             print("Time:", time.time()-basetime)
+            if hyps['hyp_search_count'] > 0 and hyps['search_id'] != None:
+                print("Search:", hyps['search_id'], "/", hyps['hyp_search_count'])
             print("Memory Used: {:.2f} memory\n".format(max_mem_used / 1024))
 
         logger.make_plots(hyps['exp_name'])
+        log.write("\nBestRew:", best_avg_rew)
+        log.close()
         # Close processes
         for p in procs:
             p.terminate()

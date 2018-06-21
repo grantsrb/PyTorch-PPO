@@ -4,7 +4,7 @@ from models import ConvModel, FCModel, A3CModel
 import numpy as np
 
 class HyperParams:
-    def __init__(self):
+    def __init__(self, arg_hyps=None):
         
         hyp_dict = dict()
         hyp_dict['string_hyps'] = {
@@ -19,7 +19,7 @@ class HyperParams:
                     "max_tsteps": int(1e6),
                     "n_tsteps": 128, # Maximum number of tsteps per rollout per perturbed copy
                     "n_envs": 11, # Number of parallel python processes
-                    "n_frame_stack":2, # Number of frames to stack in MDP state
+                    "n_frame_stack":3, # Number of frames to stack in MDP state
                     "n_rollouts": 16,
                     "grid_size": 15,
                     "unit_size": 4,
@@ -53,6 +53,9 @@ class HyperParams:
                     "use_bnorm": False,
                     }
         self.hyps = self.read_command_line(hyp_dict)
+        if arg_hyps is not None:
+            for arg_key in arg_hyps.keys():
+                self.hyps[arg_key] = arg_hyps[arg_key]
 
         # Hyperparameter Manipulations
         self.hyps['grid_size'] = [self.hyps['grid_size'],self.hyps['grid_size']]
@@ -117,32 +120,50 @@ class HyperParams:
 
 # Methods
 
-def hyper_search(hyps, hyp_ranges, keys, idx, trainer):
+def hyper_search(hyps, hyp_ranges, keys, idx, trainer, search_log):
+    """
+    hyps - dict of hyperparameters created by a HyperParameters object
+        type: dict
+        keys: name of hyperparameter
+        values: value of hyperparameter
+    hyp_ranges - dict of ranges for hyperparameters to take over the search
+        type: dict
+        keys: name of hyperparameters to be searched over
+        values: list of values to search over for that hyperparameter
+    keys - keys of the hyperparameters to be searched over. Used to
+            allow order of hyperparameter search
+    idx - the index of the current key to be searched over
+    trainer - trainer object that handles training of model
+    """
     if idx >= len(keys):
-        if 'search_count' not in hyps:
-            hyps['search_count'] = 0
+        if 'search_id' not in hyps:
+            hyps['search_id'] = 0
             hyps['exp_name'] = hyps['exp_name']+"0"
-        l = len(str(hyps['search_count']))
-        hyps['search_count'] += 1
-        hyps['exp_name'] = hyps['exp_name'][:-l]+str(hyps['search_count'])
-        trainer.train(hyps)
-        return
+            hyps['hyp_search_count'] = np.prod([len(hyp_ranges[key]) for key in keys])
+        id_ = len(str(hyps['search_id']))
+        hyps['search_id'] += 1
+        hyps['exp_name'] = hyps['exp_name'][:-id_]+str(hyps['search_id'])
+        best_avg_rew = trainer.train(hyps)
+        params = [str(key)+":"+str(hyps[key]) for key in keys]
+        search_log.write(", ".join(params)+" – BestRew:"+str(best_avg_rew)+"\n")
     else:
         key = keys[idx]
         for param in hyp_ranges[key]:
             hyps[key] = param
-            hyper_search(hyps, hyp_ranges, keys, idx+1, trainer)
+            hyper_search(hyps, hyp_ranges, keys, idx+1, trainer, search_log)
+    return
 
 def make_hyper_range(low, high, range_len, method="log"):
     if method.lower() == "random":
-        param_vals = np.random.random(low, high+.001, size=range_len)
+        param_vals = np.random.random(low, high+1e-5, size=range_len)
     elif method.lower() == "uniform":
         step = (high-low)/(range_len-1)
-        param_vals = np.arange(low, high+step, step=step)
+        param_vals = np.arange(low, high+1e-5, step=step)
     else:
         range_low = np.log(low)/np.log(10)
         range_high = np.log(high)/np.log(10)
-        arange = np.arange(range_low, range_high, step=(range_high-range_low)/(range_len-1))
+        step = (range_high-range_low)/(range_len-1)
+        arange = np.arange(range_low, range_high+1e-5, step=step)
         param_vals = 10**arange
     param_vals = [float(param_val) for param_val in param_vals]
     return param_vals
