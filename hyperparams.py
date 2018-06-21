@@ -8,7 +8,7 @@ class HyperParams:
         
         hyp_dict = dict()
         hyp_dict['string_hyps'] = {
-                    "exp_name":"brkoutparamsearch",
+                    "exp_name":"default",
                     "model_type":"conv", # Options include 'dense', 'conv', 'a3c'
                     "env_type":"Pong-v0", 
                     "optim_type":'adam' # Options: rmsprop, adam
