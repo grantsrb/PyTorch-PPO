@@ -7,15 +7,15 @@ if __name__ == "__main__":
     ppo_trainer = PPO()
     hyps = dict()
     hyp_ranges = {
-                "lambda_": [.93, .94], 
-                "lr": [1e-4, 2.5e-4, 4.5e-4],
-                "val_const": [.005, .08],
+                "lr": [9.5e-5, 1e-4, 1.5e-4],
+                "val_const": [.005, .0075, .01],
                 }
     keys = list(hyp_ranges.keys())
+    hyps['lambda_'] = .93
     hyps['gamma'] = .985
     hyps['entr_coef'] = .008
     hyps['env_type'] = "Breakout-v0"
-    hyps['exp_name'] = "brkout"
+    hyps['exp_name'] = "brkout2"
     hyps['n_tsteps'] = 256
     hyps['n_rollouts'] = 11
     hyps['n_envs'] = 11

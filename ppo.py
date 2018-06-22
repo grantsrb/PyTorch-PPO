@@ -192,8 +192,9 @@ class PPO:
             print("Memory Used: {:.2f} memory\n".format(max_mem_used / 1024))
 
         logger.make_plots(hyps['exp_name'])
-        log.write("\nBestRew:", best_avg_rew)
+        log.write("\nBestRew:"+str(best_avg_rew))
         log.close()
         # Close processes
         for p in procs:
             p.terminate()
+        return best_avg_rew
