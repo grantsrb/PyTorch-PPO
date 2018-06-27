@@ -4,7 +4,7 @@
 This is an implementation of [PPO](https://arxiv.org/abs/1707.06347) written in PyTorch using OpenAI gym environments.
 
 ## Performance
-The algorithm was trained on Pong-v0 and Breakout-v0. The reward graphs are of the moving average reward over the past 100 episodes.
+The algorithm was trained on Pong-v0. The reward graphs are of the moving average reward over the past 100 episodes.
 
 ------------------
 
