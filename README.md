@@ -51,14 +51,17 @@ Here's an example:
 The order of the command line arguments does not matter.
 
 ### Automated Hyper Parameter Search
-Much of deep learning consists of tuning hyperparameters. It can be extremely addicting to change the hyperparameters by hand and then stare at the average reward over time as the algorithm trains. THIS IS A HOMERIAN SIREN! It is too easy to change hyperparameters before their results are fully known, it is difficult to keep track of what you did, and the time spent toying with hyperparameters could be spent reading papers, studying something useful, or calling your Mom and telling her you love her (you should do that more often btw. And your dad, too.)
+Much of deep learning consists of tuning hyperparameters. It can be extremely addicting to change the hyperparameters by hand and then stare at the average reward as the algorithm trains. THIS IS A HOMERIAN SIREN! DO NOT SUCCUMB TO THE PLEASURE! It is too easy to change hyperparameters before their results are fully known. It is difficult to keep track of what you did, and the time spend toying with hyperparameters can be spent reading papers, studying something useful, or calling your Mom and telling her that you love her (you should do that more often btw. And your dad, too.)
 
-This repo contains an automated system under the name `hypersearch.py`. You can set the ranges of the hyperparameters you would like to search over manually, or use the untested and potentially buggy `make_hyper_range` function located in the `hyperparams.py` file. Then the `hyper_search` function also located in `hyperparams.py`. See `hypersearch.py` for an example.
+This repo contains an automated system under the name `hypersearch.py`. 
+
+You can set the ranges of the hyperparameters you would like to search over manually, or use the function: `make_hyper_range` located in the `hyperparams.py` file. See `hypersearch.py` for an example.
+
 
 ### Command Line Arguments
 RL algorithms often need to be tuned well for them to work. There are tons of hyperparameters that can have large impacts on the training of the algorithm. In order to help with automated hyperparameter tuning, this project offers a number of optional command line arguments. Each is set using `<argument_name>=<argument>` with no spaces. For example, if you wanted to set the variable `n_envs` (the number of parallel environments) to 15, then you would use the following:
 
-  $ python train_model.py n_envs=15
+    $ python train_model.py n_envs=15
 
 #### List of Command Line Arguments
 See `hyperparams.py` to access the default values.
