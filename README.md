@@ -88,7 +88,7 @@ See `hyperparams.py` to access the default values.
 * `lambda_` - float value of the generalized advantage estimation moving average factor. Only applies if using GAE.
 * `gamma` - float value of the discount factor used to discount the rewards and advantages.
 * `gamma_high` - if `incr_gamma` is set to true, this value denotes the upper limit of the `gamma` increase.
-* `val_const` - float value determining weight of the value loss in the total loss calculation
+* `val_coef` - float value determining weight of the value loss in the total loss calculation
 * `entr_coef` - float value determining weight of the entropy in the total loss calculation
 * `entr_coef_low` - if `decay_entr` is set to true, this value denotes the lower limit of the `entr_coef` coeficient decay.
 * `max_norm` - denotes the maximum gradient norm for gradient norm clipping
