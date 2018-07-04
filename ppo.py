@@ -67,12 +67,23 @@ class PPO:
         print("Samples Wasted in Update:", shared_len % hyps['batch_size'])
         del env
 
+        # Make Network
+        net = hyps['model'](hyps['state_shape'],action_size,h_size=hyps['h_size'],bnorm=hyps['use_bnorm'])
+        if hyps['resume']:
+            net.load_state_dict(torch.load(net_save_file))
+        base_net = copy.deepcopy(net)
+        net = cuda_if(net)
+        net.share_memory()
+        base_net = cuda_if(base_net)
+
         # Prepare Shared Variables
         shared_data = {'states': cuda_if(torch.zeros(shared_len, *hyps['state_shape']).share_memory_()),
-                'next_states': cuda_if(torch.zeros(shared_len, *hyps['state_shape']).share_memory_()),
                 'rewards': cuda_if(torch.zeros(shared_len).share_memory_()),
-                'actions': torch.zeros(shared_len).long().share_memory_(),
-                'dones': cuda_if(torch.zeros(shared_len).share_memory_())}
+                'deltas': cuda_if(torch.zeros(shared_len).share_memory_()),
+                'dones': cuda_if(torch.zeros(shared_len).share_memory_()),
+                'actions': torch.zeros(shared_len).long().share_memory_()}
+        if net.is_recurrent:
+            shared_data['h_states'] = cuda_if(torch.zeros(shared_len, hyps['h_size']).share_memory_())
         n_rollouts = hyps['n_rollouts']
         gate_q = mp.Queue(n_rollouts)
         stop_q = mp.Queue(n_rollouts)
@@ -85,15 +96,6 @@ class PPO:
             runner = Runner(shared_data, hyps, gate_q, stop_q, reward_q)
             runners.append(runner)
 
-        # Make Network
-        net = hyps['model'](hyps['state_shape'], action_size, bnorm=hyps['use_bnorm'])
-        if hyps['resume']:
-            net.load_state_dict(torch.load(net_save_file))
-        base_net = copy.deepcopy(net)
-        net = cuda_if(net)
-        net.share_memory()
-        base_net = cuda_if(base_net)
-
         # Start Data Collection
         print("Making New Processes")
         procs = []
@@ -102,11 +104,12 @@ class PPO:
             procs.append(proc)
             proc.start()
             print(i, "/", len(runners), end='\r')
+        col_start_time = time.time()
         for i in range(n_rollouts):
             gate_q.put(i)
 
         # Make Updater
-        updater = Updater(base_net, hyps['lr'], entr_coef=hyps['entr_coef'], value_const=hyps['val_const'], gamma=hyps['gamma'], lambda_=hyps['lambda_'], max_norm=hyps['max_norm'], batch_size=hyps['batch_size'], n_epochs=hyps['n_epochs'], epsilon=hyps['epsilon'], clip_vals=hyps['clip_vals'], norm_advs=hyps['norm_advs'], norm_batch_advs=hyps['norm_batch_advs'], use_nstep_rets=hyps['use_nstep_rets'], optim_type=hyps['optim_type'])
+        updater = Updater(base_net, hyps)
         if hyps['resume']:
             updater.optim.load_state_dict(torch.load(optim_save_file))
         updater.optim.zero_grad()
@@ -117,13 +120,12 @@ class PPO:
         entr_coef_diff = hyps['entr_coef'] - hyps['entr_coef_low']
         epsilon_diff = hyps['epsilon'] - hyps['epsilon_low']
         lr_diff = hyps['lr'] - hyps['lr_low']
-        gamma_diff = hyps['gamma_high'] - hyps['gamma']
 
         # Training Loop
         past_rews = deque([0]*hyps['n_past_rews'])
         last_avg_rew = 0
         best_rew_diff = 0
-        best_avg_rew = 0
+        best_avg_rew = -1000
         epoch = 0
         T = 0
         while T < hyps['max_tsteps']:
@@ -133,6 +135,8 @@ class PPO:
             # Collect data
             for i in range(n_rollouts):
                 stop_q.get()
+            collection_time = time.time() - col_start_time
+
             T += shared_len
 
             # Reward Stats
@@ -144,10 +148,13 @@ class PPO:
                 updater.save_model(best_net_file, None)
 
             # Calculate the Loss and Update nets
+            start_time = time.time()
             updater.update_model(shared_data)
+            update_time = time.time() - start_time
             net.load_state_dict(updater.net.state_dict()) # update all collector nets
             
             # Resume Data Collection
+            col_start_time = time.time()
             for i in range(n_rollouts):
                 gate_q.put(i)
 
@@ -162,9 +169,6 @@ class PPO:
             if hyps['decay_entr']:
                 updater.entr_coef = entr_coef_diff*(1-T/(hyps['max_tsteps']))+hyps['entr_coef_low']
                 print("New Entr:", updater.entr_coef)
-            if hyps['incr_gamma']:
-                updater.gamma = gamma_diff*(T/(hyps['max_tsteps']))+hyps['gamma']
-                print("New Gamma:", updater.gamma)
 
             # Periodically save model
             if epoch % 10 == 0:
@@ -186,12 +190,12 @@ class PPO:
             # Check for memory leaks
             gc.collect()
             max_mem_used = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            print("Time:", time.time()-basetime)
+            print("Time:", time.time()-basetime, "– Collection:", collection_time, "– Update:", update_time)
             if 'hyp_search_count' in hyps and hyps['hyp_search_count'] > 0 and hyps['search_id'] != None:
                 print("Search:", hyps['search_id'], "/", hyps['hyp_search_count'])
             print("Memory Used: {:.2f} memory\n".format(max_mem_used / 1024))
 
-        logger.make_plots(hyps['exp_name'])
+        logger.make_plots(base_name)
         log.write("\nBestRew:"+str(best_avg_rew))
         log.close()
         # Close processes

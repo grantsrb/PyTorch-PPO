@@ -1,6 +1,6 @@
 import sys
 import preprocessing
-from models import ConvModel, FCModel, A3CModel
+from models import ConvModel, FCModel, A3CModel, GRUModel
 import numpy as np
 
 class HyperParams:
@@ -9,9 +9,9 @@ class HyperParams:
         hyp_dict = dict()
         hyp_dict['string_hyps'] = {
                     "exp_name":"default",
-                    "model_type":"conv", # Options include 'dense', 'conv', 'a3c'
+                    "model_type":"gru", # Options include 'dense', 'conv', 'a3c'
                     "env_type":"Pong-v0", 
-                    "optim_type":'adam' # Options: rmsprop, adam
+                    "optim_type":'rmsprop' # Options: rmsprop, adam
                     }
         hyp_dict['int_hyps'] = {
                     "n_epochs": 3, # PPO update epoch count
@@ -20,23 +20,23 @@ class HyperParams:
                     "n_tsteps": 128, # Maximum number of tsteps per rollout per perturbed copy
                     "n_envs": 11, # Number of parallel python processes
                     "n_frame_stack":3, # Number of frames to stack in MDP state
-                    "n_rollouts": 16,
+                    "n_rollouts": 22,
+                    'h_size':288,
+                    "n_past_rews":25,
                     "grid_size": 15,
                     "unit_size": 4,
                     "n_foods": 2,
-                    "n_past_rews":25,
                     }
         hyp_dict['float_hyps'] = {
-                    "lr":0.001,
+                    "lr":0.0001,
                     "lr_low": float(1e-12),
                     "lambda_":.95,
                     "gamma":.99,
-                    "gamma_high":.995,
-                    "val_const":.1,
+                    "val_const":1,
                     "entr_coef":.01,
                     "entr_coef_low":.001,
                     "max_norm":.5,
-                    "epsilon": .15, # PPO update clipping constant
+                    "epsilon": .2, # PPO update clipping constant
                     "epsilon_low":.05,
                     }
         hyp_dict['bool_hyps'] = {
@@ -46,10 +46,9 @@ class HyperParams:
                     "decay_eps": False,
                     "decay_lr": False,
                     "decay_entr": False,
-                    "incr_gamma": False,
                     "use_nstep_rets": False,
-                    "norm_advs": False,
-                    "norm_batch_advs": True,
+                    "norm_advs": True,
+                    "norm_batch_advs": False,
                     "use_bnorm": False,
                     }
         self.hyps = self.read_command_line(hyp_dict)
@@ -70,6 +69,8 @@ class HyperParams:
             self.hyps['model'] = A3CModel
         elif "fc" == model_type or "dense" == model_type:
             self.hyps['model'] = FCModel
+        elif "gru" == model_type:
+            self.hyps['model'] = GRUModel
         else:
             self.hyps['model'] = ConvModel
 
@@ -146,6 +147,7 @@ def hyper_search(hyps, hyp_ranges, keys, idx, trainer, search_log):
         best_avg_rew = trainer.train(hyps)
         params = [str(key)+":"+str(hyps[key]) for key in keys]
         search_log.write(", ".join(params)+" – BestRew:"+str(best_avg_rew)+"\n")
+        search_log.flush()
     else:
         key = keys[idx]
         for param in hyp_ranges[key]:
@@ -158,12 +160,16 @@ def make_hyper_range(low, high, range_len, method="log"):
         param_vals = np.random.random(low, high+1e-5, size=range_len)
     elif method.lower() == "uniform":
         step = (high-low)/(range_len-1)
-        param_vals = np.arange(low, high+1e-5, step=step)
+        pos_step = (step > 0)
+        range_high = high+(1e-5)*pos_step-(1e-5)*pos_step
+        param_vals = np.arange(low, range_high, step=step)
     else:
         range_low = np.log(low)/np.log(10)
         range_high = np.log(high)/np.log(10)
         step = (range_high-range_low)/(range_len-1)
-        arange = np.arange(range_low, range_high+1e-5, step=step)
+        arange = np.arange(range_low, range_high, step=step)
+        if len(arange) < range_len:
+            arange = np.append(arange, [range_high])
         param_vals = 10**arange
     param_vals = [float(param_val) for param_val in param_vals]
     return param_vals

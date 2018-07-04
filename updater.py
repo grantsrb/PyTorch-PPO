@@ -19,23 +19,24 @@ class Updater():
     calc_gradients followed by update_model. If the size of the epoch is restricted by the memory, you can call calc_gradients to clear the graph.
     """
 
-    def __init__(self, net, lr, entr_coef=0.01, value_const=0.5, gamma=0.99, lambda_=0.98, max_norm=0.5, n_epochs=3, batch_size=128, epsilon=.2, clip_vals=False, norm_advs=True, norm_batch_advs=False, use_nstep_rets=True, optim_type='rmsprop'): 
+    def __init__(self, net, hyps): 
         self.net = net 
         self.old_net = copy.deepcopy(self.net) 
-        self.entr_coef = entr_coef
-        self.val_const = value_const
-        self.gamma = gamma
-        self.lambda_ = lambda_
-        self.max_norm = max_norm
-        self.n_epochs = n_epochs
-        self.batch_size = batch_size
-        self.epsilon = epsilon
-        self.clip_vals = clip_vals
-        self.norm_advs = norm_advs
-        self.norm_batch_advs = norm_batch_advs
-        self.use_nstep_rets = use_nstep_rets
-        self.optim_type = optim_type
-        self.optim = self.new_optim(lr)    
+        self.hyps = hyps
+        self.entr_coef = hyps['entr_coef']
+        self.val_coef = hyps['val_coef']
+        self.gamma = hyps['gamma']
+        self.lambda_ = hyps['lambda_']
+        self.max_norm = hyps['max_norm']
+        self.n_epochs = hyps['n_epochs']
+        self.batch_size = hyps['batch_size']
+        self.epsilon = hyps['epsilon']
+        self.clip_vals = hyps['clip_vals']
+        self.norm_advs = hyps['norm_advs']
+        self.norm_batch_advs = hyps['norm_batch_advs']
+        self.use_nstep_rets = hyps['use_nstep_rets']
+        self.optim_type = hyps['optim_type']
+        self.optim = self.new_optim(hyps['lr'])    
 
         # Tracking variables
         self.info = {}
@@ -55,7 +56,7 @@ class Updater():
                     "states" - MDP states at each timestep t
                             type: FloatTensor
                             shape: (n_states, *state_shape)
-                    "next_states" - MDP states at timestep t+1
+                    "h_states" - recurrent states at each timestep
                             type: FloatTensor
                             shape: (n_states, *state_shape)
                     "rewards" - Collects float rewards collected at each timestep t
@@ -67,16 +68,34 @@ class Updater():
                     "actions" - Collects actions performed at each timestep t
                             type: LongTensor
                             shape: (n_states,)
+                    "deltas" - the Bellman differentials collected during the rollout
+                            type: FloatTensor
+                            shape: (n_states,)
         """
 
+        hyps = self.hyps
+
         states = shared_data['states']
-        next_states = shared_data['next_states']
-        actions = shared_data['actions']
         rewards = shared_data['rewards']
         dones = shared_data['dones']
-        advantages, returns = self.make_advs_and_rets(states,next_states,rewards,dones)
+        actions = shared_data['actions']
+        deltas = shared_data['deltas']
+
+        # Make Advs and Returns
+        advs = cuda_if(self.discount(deltas.squeeze(), dones.squeeze(), hyps['gamma']*hyps['lambda_']))
+        if self.use_nstep_rets: 
+            self.net.req_grads(False)
+            if self.net.is_recurrent:
+                hs = shared_data['h_states']
+                vals, pis, _ = self.net(Variable(states), Variable(hs))
+            else:
+                vals, pis = self.net(Variable(states))
+            returns = advs + vals.data.squeeze()
+        else: 
+            returns = cuda_if(self.discount(rewards.squeeze(), dones.squeeze(), self.gamma))
+
         if self.norm_advs:
-            advantages = (advantages - advantages.mean())/(advantages.std()+1e-6)
+            advs = (advs - advs.mean())/(advs.std()+1e-5)
 
         avg_epoch_loss,avg_epoch_policy_loss,avg_epoch_val_loss,avg_epoch_entropy = 0,0,0,0
         self.net.train(mode=True)
@@ -96,7 +115,11 @@ class Updater():
                 startdx = i*self.batch_size
                 endx = (i+1)*self.batch_size
                 idxs = indices[startdx:endx]
-                batch_data = states[idxs],actions[idxs],advantages[idxs],returns[idxs]
+                if self.net.is_recurrent:
+                    hs = shared_data['h_states']
+                    batch_data = states[idxs],actions[idxs],advs[idxs],returns[idxs],hs[idxs] 
+                else:
+                    batch_data = states[idxs],actions[idxs],advs[idxs],returns[idxs],None
 
                 # Total Loss
                 policy_loss, val_loss, entropy = self.ppo_losses(*batch_data)
@@ -104,7 +127,7 @@ class Updater():
 
                 # Gradient Step
                 loss.backward()
-                self.norm = nn.utils.clip_grad_norm(self.net.parameters(), self.max_norm)
+                self.norm = nn.utils.clip_grad_norm_(self.net.parameters(), self.max_norm)
                 self.optim.step()
                 self.optim.zero_grad()
                 epoch_loss += float(loss.data)
@@ -128,7 +151,7 @@ class Updater():
         self.max_adv, self.min_adv, = -1, 1
         self.max_minsurr, self.min_minsurr = -1e10, 1e10
 
-    def ppo_losses(self, states, actions, advs, rets):
+    def ppo_losses(self, states, actions, advs, rets, hs=None):
         """
         Completes the ppo specific loss approach
 
@@ -136,20 +159,24 @@ class Updater():
         actions - torch LongTensor minibatch of empirical actions with shape (batch_size,)
         advs - torch FloatTensor minibatch of empirical advantages with shape (batch_size,)
         rets - torch FloatTensor minibatch of empirical returns with shape (batch_size,)
+        hs - torch FloatTensor minibatch of recurrent states with shape (batch_size,h_size)
 
         Returns:
             policy_loss - the PPO CLIP policy gradient shape (1,)
             val_loss - the critic loss shape (1,)
             entropy - the entropy of the action predictions shape (1,)
         """
-        # Get new Outputs
-        vals, raw_pis = self.net.forward(Variable(states))
+        # Get Outputs
+        if hs is not None:
+            vals, raw_pis, _ = self.net(Variable(states), Variable(hs))
+            old_vals, old_raw_pis, _ = self.old_net(Variable(states), Variable(hs))
+        else:
+            vals, raw_pis = self.net(Variable(states))
+            old_vals, old_raw_pis = self.old_net(Variable(states))
+
+        old_vals.detach(), old_raw_pis.detach()
         probs = F.softmax(raw_pis, dim=-1)
         pis = probs[cuda_if(torch.arange(0,len(probs)).long()), actions]
-
-        # Get old Outputs
-        old_vals, old_raw_pis = self.old_net.forward(Variable(states))
-        old_vals.detach(), old_raw_pis.detach()
         old_probs = F.softmax(old_raw_pis, dim=-1)
         old_pis = old_probs[cuda_if(torch.arange(0,len(old_probs))).long(), actions]
 
@@ -175,65 +202,16 @@ class Updater():
             clipped_vals = old_vals + torch.clamp(vals-old_vals, -self.epsilon, self.epsilon)
             v1 = .5*(vals.squeeze()-rets)**2
             v2 = .5*(clipped_vals.squeeze()-rets)**2
-            val_loss = self.val_const * torch.max(v1,v2).mean()
+            val_loss = self.val_coef * torch.max(v1,v2).mean()
         else:
-            val_loss = self.val_const * F.mse_loss(vals.squeeze(), rets)
+            val_loss = self.val_coef * F.mse_loss(vals.squeeze(), rets)
 
         # Entropy Loss
         softlogs = F.log_softmax(raw_pis, dim=-1)
         entropy_step = torch.sum(softlogs*probs, dim=-1)
-        entropy = -self.entr_coef * torch.mean(entropy_step)
+        entropy = -self.entr_coef * entropy_step.mean()
 
         return policy_loss, val_loss, entropy
-
-    def make_advs_and_rets(self, states, next_states, rewards, dones):
-        """
-        Creates the advantages and returns.
-
-        states - torch FloatTensor of shape (L, C, H, W)
-        next_states - torch FloatTensor of shape (L, C, H, W)
-        rewards - torch FloatTensor of empirical rewards (L,)
-
-        Returns:
-            advantages - torch FloatTensor of shape (L,)
-            returns - torch FloatTensor of shape (L,)
-        """
-
-        self.net.train(mode=True)
-        self.net.req_grads(False)
-        vals, raw_pis = self.net.forward(Variable(states))
-        next_vals, _ = self.net.forward(Variable(next_states))
-        self.net.req_grads(True)
-
-        # Make Advantages
-        advantages = self.gae(rewards.squeeze(), vals.data.squeeze(), next_vals.data.squeeze(), dones.squeeze(), self.gamma, self.lambda_)
-
-        # Make Returns
-        if self.use_nstep_rets: 
-            returns = advantages + vals.data.squeeze()
-        else: 
-            returns = self.discount(rewards.squeeze(), dones.squeeze(), self.gamma)
-
-        return advantages, returns
-
-    def gae(self, rewards, values, next_vals, dones, gamma, lambda_):
-        """
-        Performs Generalized Advantage Estimation
-
-        rewards - torch FloatTensor of actual rewards collected. Size = L
-        values - torch FloatTensor of value predictions. Size = L
-        next_vals - torch FloatTensor of value predictions. Size = L
-        dones - torch FloatTensor of done signals. Size = L
-        gamma - float discount factor
-        lambda_ - float gae moving average factor
-
-        Returns
-         advantages - torch FloatTensor of genralized advantage estimations. Size = L
-        """
-
-        deltas = rewards + gamma*next_vals*(1-dones) - values
-        del next_vals
-        return self.discount(deltas, dones, gamma*lambda_)
 
     def discount(self, array, dones, discount_factor):
         """
