@@ -8,7 +8,7 @@ if __name__ == "__main__":
     hyps = dict()
     hyp_ranges = {
                 "lr": [9.5e-5, 1e-4, 1.5e-4],
-                "val_const": [.005, .0075, .01],
+                "val_coef": [.005, .0075, .01],
                 }
     keys = list(hyp_ranges.keys())
     hyps['lambda_'] = .93
