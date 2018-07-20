@@ -153,7 +153,7 @@ class Updater():
 
     def ppo_losses(self, states, actions, advs, rets, hs=None):
         """
-        Completes the ppo specific loss approach
+        Performs the ppo specific loss approach
 
         states - torch FloatTensor minibatch of states with shape (batch_size, C, H, W)
         actions - torch LongTensor minibatch of empirical actions with shape (batch_size,)
